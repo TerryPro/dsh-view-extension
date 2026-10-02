@@ -1,0 +1,8 @@
+# dsh-diff-view bundle patch: inserts this plugin into a profile's layer stack.
+#
+# The row's module name is the bare package name, which is what makes the client
+# module system attach this package's ./client bundle to it as the browser half
+# (a row mounted from a subpath export would carry no half).
+- insert:
+    - id: dsh-diff-view
+      name: 'dsh-diff-view'

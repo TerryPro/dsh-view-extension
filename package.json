@@ -1,0 +1,42 @@
+{
+  "name": "dsh-diff-view",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Detailed diff view for DeepSeek Harness: changed files on the left, the selected file's comparison on the right, with a git working-tree scope and a this-session scope. · 详细 diff 视图：左侧改动文件列表，右侧对比详情，支持 git 工作区与本次会话两种来源。",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "lib",
+    "client",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-renderer"
+      ]
+    }
+  },
+  "scripts": {
+    "check": "node --check index.js && node --check lib/http.js && node --check lib/git.js && node --check lib/session.js && node --check lib/routes.js && node --check client/client.js && node tools/test-host.mjs && node tools/smoke-client.mjs",
+    "test": "node tools/test-host.mjs && node tools/smoke-client.mjs",
+    "test:host": "node tools/test-host.mjs",
+    "test:client": "node tools/smoke-client.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
