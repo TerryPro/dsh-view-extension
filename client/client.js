@@ -47,6 +47,8 @@ window.__ModuleLoader__.load({
 		var VIEW_ID = 'diff';
 		/** The per-turn browser's id: the same data, read as a conversation. */
 		var TURNS_ID = 'turns';
+		/** The file view's id: the working tree, with an editor. */
+		var FILES_ID = 'files';
 		/** How often the turn browser re-reads its list while it is on screen. */
 		var TURNS_REFRESH_MS = 8_000;
 		/** Its idle cadence: a turn list changes at turn boundaries, not every second. */
@@ -79,6 +81,10 @@ window.__ModuleLoader__.load({
 		var COMMIT_URL = '/api/dsh-diff/commit';
 		var TURNS_URL = '/api/dsh-diff/turns';
 		var TURN_URL = '/api/dsh-diff/turn';
+		/** The file view's three routes: one directory level, one file, one save. */
+		var ROUTES_TREE = '/api/dsh-diff/tree';
+		var ROUTES_READ = '/api/dsh-diff/read';
+		var WRITE_URL = '/api/dsh-diff/write';
 
 		var GIT = 'git';
 		var SESSION = 'session';
@@ -156,6 +162,30 @@ window.__ModuleLoader__.load({
 				'time.months': '{n}个月',
 				'time.years': '{n}年',
 				'time.ago': '{t}前',
+				'files.label': '文件',
+				'files.root': '工作目录',
+				'files.loading': '正在读取…',
+				'files.empty': '这个目录是空的',
+				'files.truncated': '目录过大，只列出了前 {count} 项',
+				'files.noTabs': '从左侧选择一个文件打开',
+				'files.dirty': '未保存',
+				'files.save': '保存',
+				'files.saved': '已保存',
+				'files.saving': '正在保存…',
+				'files.saveFailed': '保存失败：{detail}',
+				'files.conflict': '磁盘上的这个文件已经变了，没有覆盖',
+				'files.overwrite': '仍然覆盖',
+				'files.reload': '重新载入',
+				'files.reloaded': '已重新载入',
+				'files.binary': '二进制文件，不能在这里编辑',
+				'files.oversized': '文件太大，不能在这里打开（上限 {count} 字节）',
+				'files.unsavedConfirm': '{name} 有未保存的修改，确定关闭吗？',
+				'files.highlight': '高亮',
+				'files.edit': '编辑',
+				'files.refresh': '刷新目录',
+				'files.close': '关闭',
+				'files.modified': '已修改',
+				'files.fileCount': '{count} 个标签',
 				'list.empty': '当前范围没有改动',
 				'list.emptyFiltered': '没有匹配的文件',
 				'list.loading': '正在读取改动…',
@@ -259,6 +289,30 @@ window.__ModuleLoader__.load({
 				'time.months': '{n}mo',
 				'time.years': '{n}y',
 				'time.ago': '{t} ago',
+				'files.label': 'Files',
+				'files.root': 'Working directory',
+				'files.loading': 'Reading…',
+				'files.empty': 'This directory is empty',
+				'files.truncated': 'Directory too large: the first {count} entries are shown',
+				'files.noTabs': 'Pick a file on the left to open it',
+				'files.dirty': 'Unsaved',
+				'files.save': 'Save',
+				'files.saved': 'Saved',
+				'files.saving': 'Saving…',
+				'files.saveFailed': 'Save failed: {detail}',
+				'files.conflict': 'This file changed on disk; nothing was overwritten',
+				'files.overwrite': 'Overwrite anyway',
+				'files.reload': 'Reload',
+				'files.reloaded': 'Reloaded',
+				'files.binary': 'Binary file: not editable here',
+				'files.oversized': 'File too large to open here (limit {count} bytes)',
+				'files.unsavedConfirm': '{name} has unsaved changes. Close it?',
+				'files.highlight': 'Highlight',
+				'files.edit': 'Edit',
+				'files.refresh': 'Refresh directory',
+				'files.close': 'Close',
+				'files.modified': 'Modified',
+				'files.fileCount': '{count} tabs',
 				'list.empty': 'No changes in this scope',
 				'list.emptyFiltered': 'No file matches the filter',
 				'list.loading': 'Reading changes…',
@@ -453,6 +507,60 @@ window.__ModuleLoader__.load({
 			'.dshdv-tvFile:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}',
 			'.dshdv-tvFile[aria-selected="true"]{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}',
 			'.dshdv-tvDiff{display:flex;flex-direction:column;flex:1 1 auto;min-width:0;min-height:0}',
+			/* The file view: a tree on the left, a tabbed editor on the right.
+			 * Metrics follow the shell's own files panel (`ui-sidebar-files`
+			 * FilesBody.module.css): 18px per level, 28px tool boxes, the shared
+			 * interactive fill for hover/selection, `scrollbar-gutter: stable` so the
+			 * tree does not shift when a level grows a scrollbar. */
+			'.dshdv-fvTree{display:flex;flex-direction:column;flex:0 0 236px;min-width:0;min-height:0;border-right:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.08))}',
+			'.dshdv-fvTreeBody{flex:1 1 auto;min-height:0;overflow-y:auto;padding:6px 0 6px 8px;margin-right:2px;scrollbar-gutter:stable}',
+			'.dshdv-fvRow{display:flex;align-items:center;gap:6px;width:100%;border:0;background:transparent;text-align:left;font:inherit;font-size:12px;line-height:18px;color:var(--dsw-alias-label-primary,#1b1f24);padding:5px 10px;border-radius:var(--dsw-radius-md,12px);cursor:pointer}',
+			'.dshdv-fvRow:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}',
+			'.dshdv-fvRow[aria-selected="true"]{background:var(--dsw-alias-interactive-bg-active,var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.08)))}',
+			'.dshdv-fvRow:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#3b6cf6);outline-offset:1px}',
+			'.dshdv-fvRow[aria-disabled="true"]{cursor:default;color:var(--dsw-alias-label-tertiary,#8b939e)}',
+			'.dshdv-fvTwist{flex:none;width:12px;color:var(--dsw-alias-label-tertiary,#8b939e);font-size:10px}',
+			'.dshdv-fvGlyph{flex:none;display:inline-flex;color:var(--dsh-file-type-icon-color,var(--dsh-file-type-default-color,var(--dsw-alias-label-tertiary,#8b939e)))}',
+			'.dshdv-fvGlyphDir{--dsh-file-type-default-color:var(--dsw-alias-label-tertiary,#8b939e)}',
+			'.dshdv-fvGlyphCode{--dsh-file-type-default-color:var(--dsw-static-deepseek-500,#4d6bfe)}',
+			'.dshdv-fvGlyphMarkdown{--dsh-file-type-default-color:var(--dsw-static-deepseek-500,#4d6bfe)}',
+			'.dshdv-fvGlyphImage{--dsh-file-type-default-color:rgb(139 118 246)}',
+			'.dshdv-fvName{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+			'.dshdv-fvBadge{flex:none;color:var(--dsw-alias-state-warn-primary,#c08a20);font-size:11px}',
+			'.dshdv-fvNote{margin:4px 10px;color:var(--dsw-alias-label-tertiary,#8b939e);font-size:11px;line-height:1.5}',
+			'.dshdv-fvError{margin:4px 10px;color:var(--dsw-alias-state-error-primary,#c0392b);font-size:11px;line-height:1.5}',
+			'.dshdv-fvMain{display:flex;flex-direction:column;flex:1 1 auto;min-width:0;min-height:0}',
+			/* The tab strip: the shell's own file-tab vocabulary — 34px tall, hairline
+			 * separators, the selected tab filled with the native interactive token
+			 * (`ui-sidebar-*` uses the same), and a horizontally scrolling list so any
+			 * number of tabs stays reachable. */
+			'.dshdv-fvTabs{display:flex;align-items:stretch;flex:none;height:34px;border-bottom:0.5px solid var(--dsw-alias-border-l1,rgba(0,0,0,.06));background:var(--dsw-alias-bg-layer-1,#fff)}',
+			'.dshdv-fvTabList{display:flex;align-items:stretch;flex:1 1 auto;min-width:0;overflow-x:auto;scrollbar-width:none}',
+			'.dshdv-fvTabList::-webkit-scrollbar{display:none}',
+			'.dshdv-fvTab{display:inline-flex;align-items:center;gap:6px;flex:none;max-width:180px;min-width:64px;padding:0 8px 0 12px;border:0;border-right:0.5px solid var(--dsw-alias-border-l1,rgba(0,0,0,.06));background:transparent;font:inherit;font-size:12px;color:var(--dsw-alias-label-secondary,#5b636e);cursor:pointer}',
+			'.dshdv-fvTab[aria-selected="true"]{background:var(--dsw-alias-interactive-bg-active,var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.08)));color:var(--dsw-alias-label-primary,#1b1f24)}',
+			'.dshdv-fvTabName{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+			'.dshdv-fvDot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--dsw-alias-state-warn-primary,#c08a20)}',
+			'.dshdv-fvTabClose{flex:none;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border:0;border-radius:var(--dsw-radius-sm,6px);background:transparent;color:inherit;font:inherit;font-size:13px;line-height:1;cursor:pointer}',
+			'.dshdv-fvTabClose:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}',
+			'.dshdv-fvHeadTools{display:inline-flex;align-items:center;gap:6px;flex:none;padding:0 8px;border-left:0.5px solid var(--dsw-alias-border-l1,rgba(0,0,0,.06))}',
+			'.dshdv-fvEditor{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;min-width:0;background:var(--dsw-alias-markdown-code-block,var(--dsw-alias-bg-layer-2,#fafafa))}',
+			'.dshdv-fvPane{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;min-width:0}',
+			'.dshdv-fvPane[hidden]{display:none}',
+			'.dshdv-fvEditorHead{display:flex;align-items:center;gap:8px;flex:none;height:32px;padding:0 12px;color:var(--dsw-alias-label-tertiary,#8b939e);font-size:11px}',
+			'.dshdv-fvPath{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--ds-font-family-code,monospace)}',
+			'.dshdv-fvStatus{flex:none}',
+			/* The editing surface. An uncontrolled textarea: the draft lives in the
+			 * DOM while typing, so a keystroke costs no render at all; the model only
+			 * learns that the file BECAME dirty. Metrics come from the shell's code
+			 * font so the text sits where a highlighted view would put it. */
+			'.dshdv-fvText{flex:1 1 auto;min-height:0;width:100%;box-sizing:border-box;margin:0;padding:8px 22px 20px;border:0;outline:none;resize:none;background:transparent;color:var(--dsw-alias-label-primary,#1b1f24);font:var(--dsw-font-markdown-code-block,12px/19px var(--ds-font-family-code,monospace));tab-size:2;white-space:pre;overflow:auto}',
+			'.dshdv-fvText:focus-visible{outline:none}',
+			'.dshdv-fvHighlight{flex:1 1 auto;min-height:0;overflow:auto;padding:8px 0 20px}',
+			'.dshdv-fvHighlight .dshdv-code{border-radius:0;margin:0}',
+			'.dshdv-fvConflict{display:flex;align-items:center;gap:8px;flex:none;padding:6px 12px;background:var(--dsw-alias-bg-layer-2,rgba(0,0,0,.04));color:var(--dsw-alias-state-warn-primary,#c08a20);font-size:12px}',
+			'.dshdv-fvBar{display:flex;align-items:center;gap:8px;flex:none;height:32px;padding:0 12px;border-bottom:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.08));color:var(--dsw-alias-label-tertiary,#8b939e);font-size:11px}',
+			'.dshdv-fvBarPath{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--ds-font-family-code,monospace)}',
 			'.dshdv-add{color:var(--dsw-alias-state-success-primary,#1a7f37)}',
 			'.dshdv-del{color:var(--dsw-alias-state-error-primary,#c0392b)}',
 			'.dshdv-main{display:flex;flex:1 1 auto;min-height:0}',
@@ -528,12 +636,31 @@ window.__ModuleLoader__.load({
 
 		var STYLE_ID = NAMESPACE + '-styles';
 
-		/** Insert this bundle's stylesheet once; the module system owns the tag. */
+		/**
+		 * Insert this bundle's stylesheet once.
+		 *
+		 * The tag MUST carry `data-plugin` (and the module system's own stylesheet
+		 * marker): the loader claims every untagged `<style>` for the next plugin
+		 * that materializes and removes the ones tagged with that plugin's id when
+		 * it unloads — so an untagged sheet belongs to nobody and is deleted by
+		 * whoever comes next. Tagged, it lives and dies with this bundle.
+		 */
 		function ensureStyles() {
 			if (typeof document === 'undefined') return;
 			if (document.getElementById(STYLE_ID) !== null) return;
+			/* A tag already carrying this plugin's name belongs to this bundle (a
+			 * remount after an HMR swap, say): adopt it instead of adding a second. */
+			if (typeof document.querySelector === 'function') {
+				var existing = document.querySelector('style[data-plugin="' + NAMESPACE + '"]');
+				if (existing !== null && existing !== undefined) {
+					existing.id = STYLE_ID;
+					return;
+				}
+			}
 			var tag = document.createElement('style');
 			tag.id = STYLE_ID;
+			tag.setAttribute('data-plugin', NAMESPACE);
+			tag.setAttribute('data-plugin-css', NAMESPACE);
 			tag.textContent = STYLES.join('\n');
 			document.head.append(tag);
 		}
@@ -568,6 +695,8 @@ window.__ModuleLoader__.load({
 		var ICON_EMPTY = [['M2.5 3.5h11v9h-11z'], ['M5 6.5h6'], ['M5 9.5h4']];
 		/** A commit: a node on a line, the shape the shell's own git affordances use. */
 		var ICON_COMMIT = [['M8 2.5v11'], ['M5.2 8a2.8 2.8 0 1 0 5.6 0 2.8 2.8 0 1 0-5.6 0']];
+		/** Save: the classic floppy, so the action reads the same as everywhere else. */
+		var ICON_SAVE = [['M3.5 3.5h7.2l1.8 1.8v7.2h-9z'], ['M5.8 3.5h4.4v3.1H5.8z'], ['M5.8 9.2h4.4v3.3H5.8z']];
 
 		/* ------------------------------------------------------------------ *
 		 * Small helpers
@@ -2741,6 +2870,8 @@ window.__ModuleLoader__.load({
 		var PRIMITIVES = loadPrimitives();
 		var MarkdownText = isRenderable(PRIMITIVES.MarkdownText) ? PRIMITIVES.MarkdownText : null;
 		var Tag = isRenderable(PRIMITIVES.Tag) ? PRIMITIVES.Tag : null;
+		/** The shell's read-only code card: the file view's highlighted mode. */
+		var CodeBlock = isRenderable(PRIMITIVES.CodeBlock) ? PRIMITIVES.CodeBlock : null;
 		var ShellrelativeTime = typeof PRIMITIVES.relativeTime === 'function' ? PRIMITIVES.relativeTime : null;
 
 		/**
@@ -2774,6 +2905,679 @@ window.__ModuleLoader__.load({
 		}
 
 		/* ------------------------------------------------------------------ *
+		 * The file view
+		 *
+		 * A tree on the left, a tabbed editor on the right — the shape
+		 * `dsh-vscode` gives its files panel and the shape `dsh-better-sidebar`
+		 * gives its workbench. What each taught this implementation:
+		 *
+		 *   - the tree lists one level per request, directories first, and never
+		 *     waits for a change subscription before its first read;
+		 *   - every open tab stays MOUNTED and merely hidden, so switching tabs
+		 *     never tears down a draft;
+		 *   - the editor is an uncontrolled surface: a keystroke updates the DOM
+		 *     and, at most once, the "this file is dirty" bit;
+		 *   - and the one thing neither reference could hand over: saving. The
+		 *     shell's `workspaceFiles` exposes no write, so `lib/workspace.js`
+		 *     serves read and write together and checks `(mtimeMs, bytes)` before
+		 *     a save lands.
+		 * ------------------------------------------------------------------ */
+
+		/** Where the open tabs live, per Session (per browser, like this plugin's other prefs). */
+		var TABS_KEY = NAMESPACE + '.tabs';
+		/** How long tab changes settle before they are written. */
+		var TABS_DEBOUNCE_MS = 250;
+		/** How many entries one level renders before it says so. */
+		var TREE_RENDER_CAP = 800;
+
+		/** Extensions drawn with the code glyph; anything else gets the plain sheet. */
+		var CODE_EXTENSIONS = new Set(['js', 'mjs', 'cjs', 'ts', 'tsx', 'jsx', 'json', 'css', 'scss', 'less', 'html', 'htm', 'xml', 'yml', 'yaml', 'toml', 'ini', 'sh', 'ps1', 'py', 'rb', 'go', 'rs', 'java', 'c', 'h', 'cc', 'cpp', 'hpp', 'cs', 'php', 'lua', 'sql', 'vue', 'svelte']);
+		/** Extensions drawn with the markdown glyph. */
+		var MARKDOWN_EXTENSIONS = new Set(['md', 'markdown', 'mdx']);
+		/** Extensions drawn with the image glyph. */
+		var IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'ico', 'bmp', 'avif']);
+
+		/** The last path segment of a slash-separated path. */
+		function baseName(path) {
+			var at = path.lastIndexOf('/');
+			return at === -1 ? path : path.slice(at + 1);
+		}
+
+		/** The lower-case extension of a name, without the dot. */
+		function extensionOf(name) {
+			var at = name.lastIndexOf('.');
+			return at <= 0 ? '' : name.slice(at + 1).toLowerCase();
+		}
+
+		/** Which glyph a name gets: `code`, `markdown`, `image`, or `plain`. */
+		function glyphFor(name) {
+			var extension = extensionOf(name);
+			if (MARKDOWN_EXTENSIONS.has(extension)) return 'markdown';
+			if (IMAGE_EXTENSIONS.has(extension)) return 'image';
+			if (CODE_EXTENSIONS.has(extension)) return 'code';
+			return 'plain';
+		}
+
+		/** The state the file view starts from. */
+		function filesState() {
+			return {
+				phase: 'idle',
+				error: null,
+				root: null,
+				/** One entry per level already read: `''` is the root. */
+				levels: {},
+				expanded: [''],
+				/** Open tabs, in strip order. */
+				tabs: [],
+				active: null,
+				/** One document per open tab: how its read went, and what it held. */
+				docs: {},
+				/** Which tabs hold unsaved edits. */
+				dirty: {},
+				/** Tabs whose save was refused because the disk moved. */
+				conflicts: {},
+				/** Tabs whose save failed, with the reason. */
+				failures: {},
+				/** The tab showing the highlighted (read-only) view instead of the editor. */
+				highlighting: null,
+			};
+		}
+
+		function createFilesController(t) {
+			var listeners = new Set();
+			var state = filesState();
+			var epoch = 0;
+			/** One generation per LEVEL: only the last read of a path may write it. */
+			var levelGenerations = new Map();
+			var docGeneration = 0;
+			var saveGeneration = 0;
+			var writeTimer = undefined;
+
+			function emit() {
+				listeners.forEach(function (listener) { listener(); });
+			}
+
+			function patch(next) {
+				if (sameState(state, next)) return;
+				state = Object.assign({}, state, next);
+				emit();
+			}
+
+			/** Remember the open tabs for this Session, debounced. */
+			function scheduleWrite(sessionId) {
+				if (writeTimer !== undefined) window.clearTimeout(writeTimer);
+				writeTimer = window.setTimeout(function () {
+					writeTimer = undefined;
+					writePreference(TABS_KEY + ':' + sessionId, JSON.stringify({ tabs: state.tabs, active: state.active }));
+				}, TABS_DEBOUNCE_MS);
+			}
+
+			/** Read the tabs this browser last had open for the Session. */
+			function rememberedTabs(sessionId) {
+				var raw = readPreference(TABS_KEY + ':' + sessionId, '');
+				if (raw === '') return { tabs: [], active: null };
+				try {
+					var parsed = JSON.parse(raw);
+					var tabs = Array.isArray(parsed.tabs) ? parsed.tabs.filter(function (path) { return typeof path === 'string' && path !== ''; }) : [];
+					var active = typeof parsed.active === 'string' && tabs.indexOf(parsed.active) !== -1 ? parsed.active : (tabs.length > 0 ? tabs[tabs.length - 1] : null);
+					return { tabs: tabs, active: active };
+				} catch (error) {
+					return { tabs: [], active: null };
+				}
+			}
+
+			var controller = {
+				getSnapshot: function () { return state; },
+				subscribe: function (listener) {
+					listeners.add(listener);
+					return function () { listeners.delete(listener); };
+				},
+
+				/** Read the root level and restore this browser's tabs. */
+				load: async function (sessionId, options) {
+					var silent = options !== undefined && options.silent === true;
+					var current = (epoch += 1);
+					var stale = function () { return current !== epoch; };
+					if (!silent) patch({ phase: 'loading', error: null, levels: {}, expanded: [''] });
+					var answer = await controller.readLevel(sessionId, '');
+					if (stale()) return;
+					if (answer === undefined) return;
+					var remembered = rememberedTabs(sessionId);
+					patch({ phase: 'ready', root: answer.cwd === undefined ? (state.root === null ? '' : state.root) : answer.cwd });
+					for (var at = 0; at < remembered.tabs.length; at += 1) {
+						if (stale()) return;
+						await controller.open(sessionId, remembered.tabs[at], { silent: true, activate: false });
+					}
+					if (stale()) return;
+					if (remembered.active !== null) patch({ active: remembered.active });
+				},
+
+				/**
+				 * Read one level into the model.
+				 *
+				 * The generation guard is per level, not global: two directories can be
+				 * read at once (the reader expands a second one while the first is in
+				 * flight), and only the LAST read of a given path may write.
+				 */
+				readLevel: async function (sessionId, path) {
+					var generation = (levelGenerations.get(path) ?? 0) + 1;
+					levelGenerations.set(path, generation);
+					var started = epoch;
+					patch({ levels: Object.assign({}, state.levels, { [path]: { phase: 'loading', entries: [], truncated: false, error: null } }) });
+					var result;
+					try {
+						result = await readJson(TREE_URL(sessionId, path), undefined);
+					} catch (error) {
+						result = { failed: 'error.generic' };
+					}
+					if (started !== epoch) return undefined;
+					if (levelGenerations.get(path) !== generation) return undefined;
+					if (result.failed !== undefined) {
+						patch({ levels: Object.assign({}, state.levels, { [path]: { phase: 'failed', entries: [], truncated: false, error: result.failed } }) });
+						return undefined;
+					}
+					var value = result.value;
+					var entries = Array.isArray(value.entries) ? value.entries : [];
+					patch({ levels: Object.assign({}, state.levels, { [path]: { phase: 'ready', entries: entries, truncated: value.truncated === true, error: null } }) });
+					return { cwd: value.cwd, entries: entries };
+				},
+
+				/** Expand or collapse one directory, reading it the first time. */
+				toggle: async function (sessionId, path) {
+					var expanded = state.expanded.slice();
+					var at = expanded.indexOf(path);
+					if (at === -1) expanded.push(path);
+					else expanded.splice(at, 1);
+					patch({ expanded: expanded });
+					if (at === -1 && state.levels[path] === undefined) await controller.readLevel(sessionId, path);
+				},
+
+				/** Re-read one directory (the refresh button, or a save that changed it). */
+				refreshLevel: async function (sessionId, path) {
+					await controller.readLevel(sessionId, path);
+				},
+
+				/** Open a tab: read the file unless it is already open. */
+				open: async function (sessionId, path, options) {
+					var activate = options === undefined || options.activate !== false;
+					var silent = options !== undefined && options.silent === true;
+					var known = state.tabs.indexOf(path) !== -1;
+					var tabs = known ? state.tabs : state.tabs.concat([path]);
+					patch({
+						tabs: tabs,
+						...(activate ? { active: path } : {}),
+					});
+					if (known && state.docs[path] !== undefined && state.docs[path].phase === 'ready') {
+						scheduleWrite(sessionId);
+						return;
+					}
+					var generation = (docGeneration += 1);
+					var started = epoch;
+					patch({ docs: Object.assign({}, state.docs, { [path]: Object.assign({}, state.docs[path], { phase: 'loading', error: null }) }) });
+					var result;
+					try {
+						result = await readJson(READ_URL(sessionId, path), undefined);
+					} catch (error) {
+						result = { failed: 'error.generic' };
+					}
+					if (started !== epoch || generation !== docGeneration) return;
+					if (result.failed !== undefined) {
+						patch({ docs: Object.assign({}, state.docs, { [path]: { phase: 'failed', text: '', mtimeMs: 0, bytes: 0, error: result.failed } }) });
+						return;
+					}
+					var value = result.value;
+					patch({
+						docs: Object.assign({}, state.docs, {
+							[path]: {
+								phase: 'ready',
+								text: typeof value.text === 'string' ? value.text : '',
+								mtimeMs: value.mtimeMs,
+								bytes: value.bytes,
+								binary: value.binary === true,
+								oversized: value.oversized === true,
+								error: null,
+							},
+						}),
+						dirty: Object.assign({}, state.dirty, { [path]: false }),
+						conflicts: Object.assign({}, state.conflicts, { [path]: false }),
+						failures: Object.assign({}, state.failures, { [path]: null }),
+					});
+					if (!silent) scheduleWrite(sessionId);
+				},
+
+				/** Bring one tab to the front. */
+				activate: function (sessionId, path) {
+					if (state.active === path) return;
+					patch({ active: path });
+					scheduleWrite(sessionId);
+				},
+
+				/** Close a tab, asking first when it holds unsaved edits. */
+				close: function (sessionId, path) {
+					if (state.dirty[path] === true) {
+						var question = t('files.unsavedConfirm', { name: baseName(path) });
+						var confirmed = typeof window.confirm === 'function' ? window.confirm(question) : true;
+						if (!confirmed) return;
+					}
+					var tabs = state.tabs.filter(function (entry) { return entry !== path; });
+					var docs = Object.assign({}, state.docs);
+					delete docs[path];
+					var dirty = Object.assign({}, state.dirty);
+					delete dirty[path];
+					var active = state.active;
+					if (active === path) active = tabs.length > 0 ? tabs[tabs.length - 1] : null;
+					patch({ tabs: tabs, active: active, docs: docs, dirty: dirty });
+					scheduleWrite(sessionId);
+				},
+
+				/**
+				 * Note that a tab's draft differs from what was read.
+				 *
+				 * Called once per editing session, not once per keystroke: the caller
+				 * compares the textarea against the loaded text and only reports the
+				 * transition, so typing costs no render.
+				 */
+				setDirty: function (path, dirty) {
+					if (state.dirty[path] === dirty) return;
+					patch({ dirty: Object.assign({}, state.dirty, { [path]: dirty }) });
+				},
+
+				/** Show the highlighted (read-only) view for one tab, or go back to editing. */
+				setHighlight: function (path, on) {
+					patch({ highlighting: on ? path : (state.highlighting === path ? null : state.highlighting) });
+				},
+
+				/**
+				 * Save one tab.
+				 *
+				 * The freshness pair from the read travels with the save; the Host refuses
+				 * a write whose pair no longer matches the disk, and that refusal is shown
+				 * as a conflict with an explicit overwrite — never retried silently.
+				 */
+				save: async function (sessionId, path, text, force) {
+					var doc = state.docs[path];
+					if (doc === undefined) return;
+					var generation = (saveGeneration += 1);
+					var started = epoch;
+					patch({ failures: Object.assign({}, state.failures, { [path]: null }) });
+					var body = { sessionId: sessionId, path: path, content: text };
+					if (force !== true) body.expected = { mtimeMs: doc.mtimeMs, bytes: doc.bytes };
+					var answer;
+					try {
+						var response = await fetch(WRITE_URL, {
+							method: 'POST',
+							credentials: 'same-origin',
+							headers: { 'content-type': 'application/json' },
+							body: JSON.stringify(body),
+						});
+						var payload = null;
+						try { payload = await response.json(); } catch (error) { payload = null; }
+						answer = { ok: response.ok && payload !== null && payload.ok === true, status: response.status, body: payload };
+					} catch (error) {
+						answer = { ok: false, status: 0, body: null };
+					}
+					if (started !== epoch || generation !== saveGeneration) return;
+					if (answer.ok !== true) {
+						var code = answer.body === null || answer.body === undefined || answer.body.error === undefined ? undefined : answer.body.error.code;
+						if (code === 'diff/conflict') {
+							patch({ conflicts: Object.assign({}, state.conflicts, { [path]: true }), dirty: Object.assign({}, state.dirty, { [path]: true }) });
+							return;
+						}
+						var detail = answer.body !== null && answer.body !== undefined && answer.body.error !== undefined ? String(answer.body.error.message ?? '') : '';
+						patch({ failures: Object.assign({}, state.failures, { [path]: detail === '' ? t('files.saveFailed', { detail: String(answer.status) }) : t('files.saveFailed', { detail: detail }) }) });
+						return;
+					}
+					patch({
+						docs: Object.assign({}, state.docs, {
+							[path]: Object.assign({}, doc, { text: text, mtimeMs: answer.body.mtimeMs, bytes: answer.body.bytes }),
+						}),
+						dirty: Object.assign({}, state.dirty, { [path]: false }),
+						conflicts: Object.assign({}, state.conflicts, { [path]: false }),
+						failures: Object.assign({}, state.failures, { [path]: null }),
+					});
+					/* The file on disk moved, so the tree may have: a save can create a file
+					 * or change nothing at all, and re-reading the parent is cheap. */
+					var parent = path.indexOf('/') === -1 ? '' : path.slice(0, path.lastIndexOf('/'));
+					if (state.expanded.indexOf(parent) !== -1) await controller.readLevel(sessionId, parent);
+				},
+
+				/** Forget a file's draft and read it again from disk. */
+				reload: async function (sessionId, path) {
+					var docs = Object.assign({}, state.docs);
+					delete docs[path];
+					patch({ docs: docs, dirty: Object.assign({}, state.dirty, { [path]: false }), conflicts: Object.assign({}, state.conflicts, { [path]: false }) });
+					await controller.open(sessionId, path, { activate: false });
+				},
+
+				reset: function () {
+					if (writeTimer !== undefined) window.clearTimeout(writeTimer);
+					writeTimer = undefined;
+					epoch += 1;
+					state = filesState();
+					emit();
+				},
+			};
+			return controller;
+		}
+
+		function TREE_URL(sessionId, path) {
+			return ROUTES_TREE + '?sessionId=' + encodeURIComponent(sessionId) + '&path=' + encodeURIComponent(path);
+		}
+
+		function READ_URL(sessionId, path) {
+			return ROUTES_READ + '?sessionId=' + encodeURIComponent(sessionId) + '&path=' + encodeURIComponent(path);
+		}
+
+		/** The folder / file sheet glyphs, in the shell's 16×16 1px-stroke language. */
+		function fileGlyph(kind, isDirectory, open) {
+			if (isDirectory) {
+				return icon(open
+					? [['M2.5 5.5h4l1-1.5h6v8.5h-11z'], ['M2.5 5.5v7h11']]
+					: [['M2.5 4.5h4.2l1.1-1.6h5.7v9.6h-11z']]);
+			}
+			var sheet = [['M4 2.5h5.2L12 5.3v8.2H4z'], ['M9.2 2.5v2.8H12']];
+			var mark = kind === 'code'
+				? [['M6.6 8.2 5.4 9.6l1.2 1.4'], ['M9.4 8.2l1.2 1.4-1.2 1.4']]
+				: kind === 'markdown'
+					? [['M6 11.2V8l1.4 1.8L8.8 8v3.2'], ['M9.9 8v3.2l1.1-1.4']]
+					: kind === 'image'
+						? [['M6 8.4h4.2v3H6z'], ['M6.6 10.8l1-1.1.9.8']]
+						: [];
+			return icon(sheet.concat(mark));
+		}
+
+		/** One directory level, rendered as rows. */
+		function TreeLevel(props) {
+			var entries = props.entries;
+			var depth = props.depth;
+			return h('div', { className: 'dshdv-fvLevel', role: 'group' },
+				entries.slice(0, TREE_RENDER_CAP).map(function (entry) {
+					var path = props.prefix === '' ? entry.name : props.prefix + '/' + entry.name;
+					var isDirectory = entry.type === 'directory';
+					var open = isDirectory && props.expanded.indexOf(path) !== -1;
+					var level = props.levels[path];
+					var rows = [
+						h('button', {
+							key: 'row',
+							type: 'button',
+							role: 'treeitem',
+							className: 'dshdv-fvRow',
+							'data-path': path,
+							'data-kind': entry.type,
+							'aria-expanded': isDirectory ? open : undefined,
+							'aria-selected': isDirectory ? undefined : path === props.active,
+							'aria-disabled': entry.type === 'other' ? 'true' : undefined,
+							title: path,
+							style: { paddingLeft: String(10 + depth * 18) + 'px' },
+							onClick: function () {
+								props.markActive();
+								if (isDirectory) { void props.onToggle(path); return; }
+								if (entry.type === 'other') return;
+								void props.onOpen(path);
+							},
+						},
+							h('span', { className: 'dshdv-fvTwist', 'aria-hidden': 'true' }, isDirectory ? (open ? '▾' : '▸') : ''),
+							h('span', { className: 'dshdv-fvGlyph dshdv-fvGlyph' + (isDirectory ? 'Dir' : glyphFor(entry.name).charAt(0).toUpperCase() + glyphFor(entry.name).slice(1)) }, fileGlyph(glyphFor(entry.name), isDirectory, open)),
+							h('span', { className: 'dshdv-fvName' }, entry.name),
+							props.dirty.indexOf(path) === -1 ? null : h('span', { className: 'dshdv-fvBadge' }, '●')),
+					];
+					if (isDirectory && open && level !== undefined) {
+						if (level.phase === 'loading') rows.push(h('p', { key: 'loading', className: 'dshdv-fvNote', style: { paddingLeft: String(10 + (depth + 1) * 18) + 'px' } }, props.t('files.loading')));
+						else if (level.phase === 'failed') rows.push(h('p', { key: 'failed', className: 'dshdv-fvError', style: { paddingLeft: String(10 + (depth + 1) * 18) + 'px' } }, props.t(level.error === null ? 'error.generic' : level.error)));
+						else if (level.entries.length === 0) rows.push(h('p', { key: 'empty', className: 'dshdv-fvNote', style: { paddingLeft: String(10 + (depth + 1) * 18) + 'px' } }, props.t('files.empty')));
+						else {
+							rows.push(h(TreeLevel, {
+								key: 'level',
+								prefix: path,
+								entries: level.entries,
+								levels: props.levels,
+								expanded: props.expanded,
+								dirty: props.dirty,
+								active: props.active,
+								depth: depth + 1,
+								t: props.t,
+								markActive: props.markActive,
+								onToggle: props.onToggle,
+								onOpen: props.onOpen,
+							}));
+							if (level.truncated) rows.push(h('p', { key: 'cut', className: 'dshdv-fvNote', style: { paddingLeft: String(10 + (depth + 1) * 18) + 'px' } }, props.t('files.truncated', { count: String(level.entries.length) })));
+						}
+					}
+					return h(React.Fragment, { key: path }, rows);
+				}));
+		}
+
+		/** The file view: tree, tab strip, editor. */
+		function FilesView(props) {
+			var controller = props.controller;
+			var sessionId = props.sessionId;
+			var t = props.t;
+			var state = React.useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
+			var activeUntil = React.useRef(0);
+			var markActive = function () { activeUntil.current = Date.now() + TURNS_ACTIVE_MS; };
+
+			React.useEffect(function () {
+				void controller.load(sessionId);
+				return function () { controller.reset(); };
+			}, [controller, sessionId]);
+
+			var rootLevel = state.levels[''];
+			var listBody;
+			if (state.phase === 'loading' || (rootLevel !== undefined && rootLevel.phase === 'loading')) {
+				listBody = h('div', { className: 'dshdv-status' }, h('p', null, t('files.loading')));
+			} else if (state.phase === 'error') {
+				listBody = h('div', { className: 'dshdv-status' },
+					h('p', null, t(state.error === null ? 'error.generic' : state.error)),
+					h('button', { type: 'button', className: 'dshdv-btn', onClick: function () { void controller.load(sessionId); } }, t('error.retry')));
+			} else if (rootLevel !== undefined && rootLevel.phase === 'failed') {
+				listBody = h('div', { className: 'dshdv-status' },
+					h('p', null, t(rootLevel.error === null ? 'error.generic' : rootLevel.error)),
+					h('button', { type: 'button', className: 'dshdv-btn', onClick: function () { void controller.refreshLevel(sessionId, ''); } }, t('error.retry')));
+			} else if (rootLevel !== undefined && rootLevel.phase === 'ready' && rootLevel.entries.length === 0) {
+				listBody = h('div', { className: 'dshdv-status' }, h('p', null, t('files.empty')));
+			} else if (rootLevel !== undefined && rootLevel.phase === 'ready') {
+				listBody = h(TreeLevel, {
+					prefix: '',
+					entries: rootLevel.entries,
+					levels: state.levels,
+					expanded: state.expanded,
+					dirty: Object.keys(state.dirty).filter(function (path) { return state.dirty[path] === true; }),
+					active: state.active,
+					depth: 0,
+					t: t,
+					markActive: markActive,
+					onToggle: function (path) { return controller.toggle(sessionId, path); },
+					onOpen: function (path) { return controller.open(sessionId, path); },
+				});
+			} else {
+				listBody = h('div', { className: 'dshdv-status' }, h('p', null, t('files.loading')));
+			}
+
+			var dirtyPaths = state.tabs.filter(function (path) { return state.dirty[path] === true; });
+			var tabStrip = h('div', { className: 'dshdv-fvTabs', role: 'tablist', 'data-dsh-diff-files-tabs': '' },
+				h('div', { className: 'dshdv-fvTabList' }, state.tabs.map(function (path) {
+					return h('span', {
+						key: path,
+						className: 'dshdv-fvTab',
+						role: 'tab',
+						'data-path': path,
+						'aria-selected': path === state.active,
+					},
+						state.dirty[path] === true ? h('span', { className: 'dshdv-fvDot', 'aria-hidden': 'true' }) : null,
+						h('button', {
+							type: 'button',
+							className: 'dshdv-fvTabName',
+							title: path,
+							style: { border: '0', background: 'transparent', color: 'inherit', font: 'inherit', textAlign: 'left', cursor: 'pointer', padding: '0' },
+							onClick: function () {
+								markActive();
+								controller.activate(sessionId, path);
+							},
+						}, baseName(path)),
+						h('button', {
+							type: 'button',
+							className: 'dshdv-fvTabClose',
+							'aria-label': t('files.close'),
+							title: t('files.close'),
+							onClick: function () {
+								markActive();
+								controller.close(sessionId, path);
+							},
+						}, '×'));
+				})),
+				h('span', { className: 'dshdv-fvHeadTools' },
+					h('button', {
+						type: 'button',
+						className: 'dshdv-btn',
+						title: t('files.refresh'),
+						'aria-label': t('files.refresh'),
+						'data-dsh-diff-files-refresh': '',
+						onClick: function () {
+							markActive();
+							void controller.refreshLevel(sessionId, '');
+						},
+					}, icon(ICON_REFRESH))));
+
+			var activePath = state.active;
+			var activeDoc = activePath === null ? undefined : state.docs[activePath];
+
+			/**
+			 * One editing surface per OPEN tab, all of them mounted.
+			 *
+			 * Inactive panes are hidden, never unmounted: a draft lives in the
+			 * textarea's DOM, so unmounting the pane the reader just left would throw
+			 * the draft away — which is exactly the mistake the reference
+			 * implementation documents avoiding ("Every tab stays MOUNTED (inactive
+			 * ones hidden), so switching tabs never tears down the content").
+			 */
+			/** The live text of one tab: what the reader typed, or what was read. */
+			function textFor(path) {
+				var node = panes.current[path];
+				if (node !== null && node !== undefined && typeof node.value === 'string') return node.value;
+				var doc = state.docs[path];
+				return doc === undefined ? '' : doc.text;
+			}
+
+			var panes = React.useRef({});
+
+			function paneBody(path) {
+				var doc = state.docs[path];
+				var t2 = t;
+				if (doc === undefined || doc.phase === 'loading') {
+					return h('div', { className: 'dshdv-status' }, h('p', null, t2('files.loading')));
+				}
+				if (doc.phase === 'failed') {
+					return h('div', { className: 'dshdv-status' },
+						h('p', null, t2(doc.error === null ? 'error.generic' : doc.error)),
+						h('button', { type: 'button', className: 'dshdv-btn', onClick: function () { void controller.reload(sessionId, path); } }, t2('error.retry')));
+				}
+				if (doc.binary === true) return h('div', { className: 'dshdv-status' }, h('p', null, t2('files.binary')));
+				if (doc.oversized === true) return h('div', { className: 'dshdv-status' }, h('p', null, t2('files.oversized', { count: String(doc.bytes) })));
+				if (state.highlighting === path) {
+					return h('div', { className: 'dshdv-fvHighlight', 'data-dsh-diff-files-highlight': path },
+						CodeBlock === null
+							? h('pre', { className: 'dshdv-fvText' }, doc.text)
+							: h(CodeBlock, {
+								code: doc.text,
+								lang: extensionOf(path) === '' ? undefined : extensionOf(path),
+								lineNumbers: true,
+								copyLabel: t2('turns.copy'),
+								copiedLabel: t2('turns.copied'),
+							}));
+				}
+				return h('textarea', {
+					/* Uncontrolled: the draft lives in the DOM, so typing costs no render
+					 * and the model only hears the false→true transition. */
+					ref: function (node) { panes.current[path] = node; },
+					className: 'dshdv-fvText',
+					'data-dsh-diff-files-editor': path,
+					spellCheck: false,
+					defaultValue: doc.text,
+					onInput: function (event) {
+						markActive();
+						controller.setDirty(path, event.target.value !== doc.text);
+					},
+					onKeyDown: function (event) {
+						if ((event.ctrlKey || event.metaKey) && (event.key === 's' || event.key === 'S')) {
+							event.preventDefault();
+							void controller.save(sessionId, path, event.currentTarget.value, false);
+						}
+					},
+				});
+			}
+
+			var editorPanes = state.tabs.map(function (path) {
+				var isActive = path === activePath;
+				return h('div', {
+					key: path,
+					className: 'dshdv-fvPane',
+					hidden: !isActive,
+					'data-dsh-diff-files-pane': path,
+					'data-active': isActive ? 'true' : undefined,
+				}, paneBody(path));
+			});
+
+			var status = null;
+			if (activePath !== null && activeDoc !== undefined && activeDoc.phase === 'ready') {
+				if (state.conflicts[activePath] === true) status = t('files.conflict');
+				else if (typeof state.failures[activePath] === 'string') status = state.failures[activePath];
+				else if (state.dirty[activePath] === true) status = t('files.dirty');
+				else status = t('files.saved');
+			}
+
+			var conflictBar = activePath !== null && state.conflicts[activePath] === true
+				? h('div', { className: 'dshdv-fvConflict', role: 'status' },
+					h('span', null, t('files.conflict')),
+					h('button', {
+						type: 'button',
+						className: 'dshdv-btn',
+						'data-dsh-diff-files-overwrite': '',
+						onClick: function () { void controller.save(sessionId, activePath, textFor(activePath), true); },
+					}, t('files.overwrite')),
+					h('button', {
+						type: 'button',
+						className: 'dshdv-btn',
+						'data-dsh-diff-files-reload': '',
+						onClick: function () { void controller.reload(sessionId, activePath); },
+					}, t('files.reload')))
+				: null;
+
+			var editorHead = activePath === null ? null : h('div', { className: 'dshdv-fvEditorHead' },
+				h('span', { className: 'dshdv-fvPath' }, activePath),
+				status === null ? null : h('span', { className: 'dshdv-fvStatus', 'data-dsh-diff-files-status': '' }, status),
+				state.highlighting === activePath
+					? h('button', { type: 'button', className: 'dshdv-btn', 'data-dsh-diff-files-edit': '', onClick: function () { controller.setHighlight(activePath, false); } }, t('files.edit'))
+					: h('button', { type: 'button', className: 'dshdv-btn', 'data-dsh-diff-files-highlight-toggle': '', onClick: function () { controller.setHighlight(activePath, true); } }, t('files.highlight')),
+				h('button', {
+					type: 'button',
+					className: 'dshdv-btn',
+					'data-dsh-diff-files-save': '',
+					title: t('files.save'),
+					'aria-label': t('files.save'),
+					disabled: activeDoc === undefined || activeDoc.phase !== 'ready',
+					onClick: function () { void controller.save(sessionId, activePath, textFor(activePath), false); },
+				}, icon(ICON_SAVE)));
+
+			/* The container already draws the head and the conflict bar, so the body is
+			 * only ever the panes — passing the head and the bar in here as well
+			 * rendered both twice. */
+			var editor = state.tabs.length === 0
+				? h('div', { className: 'dshdv-status' }, h('p', null, t('files.noTabs')))
+				: editorPanes;
+
+			return h('div', { className: 'dshdv-root', 'data-dsh-diff-files': '', 'data-conversation-composer-overlay': '' },
+				h('div', { className: 'dshdv-fvBar' },
+					h('span', { className: 'dshdv-fvBarPath' }, state.root === null ? t('files.root') : state.root),
+					h('span', null, t('files.fileCount', { count: String(state.tabs.length) }))),
+				h('div', { className: 'dshdv-main' },
+					h('div', { className: 'dshdv-fvTree' },
+						h('div', { className: 'dshdv-fvTreeBody', role: 'tree', 'aria-label': t('files.label'), 'data-dsh-diff-files-tree': '' }, listBody)),
+					h('div', { className: 'dshdv-fvMain' },
+						tabStrip,
+						h('div', { className: 'dshdv-fvEditor' }, editorHead, conflictBar, editor))));
+		}
+
+		/* ------------------------------------------------------------------ *
 		 * Plugin
 		 * ------------------------------------------------------------------ */
 
@@ -2794,10 +3598,17 @@ window.__ModuleLoader__.load({
 			} catch (error) {
 				console.error('[dsh-diff-view] locale unavailable:', error);
 			}
-			return function (key) {
-				var value = bound === undefined ? undefined : bound(key);
+			return function (key, values) {
+				var value = bound === undefined ? undefined : bound(key, values);
 				if (typeof value === 'string' && value !== '' && value !== key) return value;
-				return Object.prototype.hasOwnProperty.call(fallback, key) ? fallback[key] : key;
+				/* The built-in dictionary is also the fallback's interpolator: without a
+				 * locale service the shell cannot fill `{name}` in for us, and a raw
+				 * placeholder in a confirmation question helps nobody. */
+				var text = Object.prototype.hasOwnProperty.call(fallback, key) ? fallback[key] : key;
+				if (values !== undefined && values !== null && typeof text === 'string') {
+					for (var name in values) text = text.split('{' + name + '}').join(String(values[name]));
+				}
+				return text;
 			};
 		}
 
@@ -2806,6 +3617,7 @@ window.__ModuleLoader__.load({
 			var t = createTranslator(ctx);
 			var controllers = new Map();
 			var turnControllers = new Map();
+			var fileControllers = new Map();
 
 			/**
 			 * One controller per Session, so switching Sessions keeps each one's
@@ -2825,6 +3637,15 @@ window.__ModuleLoader__.load({
 				if (existing !== undefined) return existing;
 				var created = createTurnsController(t);
 				turnControllers.set(sessionId, created);
+				return created;
+			}
+
+			/** The same, for the file view. */
+			function filesFor(sessionId) {
+				var existing = fileControllers.get(sessionId);
+				if (existing !== undefined) return existing;
+				var created = createFilesController(t);
+				fileControllers.set(sessionId, created);
 				return created;
 			}
 
@@ -2873,9 +3694,32 @@ window.__ModuleLoader__.load({
 			}, NAMESPACE + ': turn tab');
 
 			ctx.effect(function () {
+				try {
+					return ctx.slots.inject('conversation.view', function () {
+						return ctx.slots.register({
+							name: 'conversation.view',
+							id: FILES_ID,
+							/* Third, after the changes tab: the same Session, opened as a
+							 * working tree you can actually edit. */
+							order: 22,
+							locale: NAMESPACE,
+							label: function () { return t('files.label'); },
+							inject: function (sessionId) {
+								return { controller: filesFor(sessionId) };
+							},
+						}, FilesView);
+					});
+				} catch (error) {
+					console.error('[dsh-diff-view] failed to register the file view:', error);
+					return undefined;
+				}
+			}, NAMESPACE + ': files tab');
+
+			ctx.effect(function () {
 				return function () {
 					controllers.clear();
 					turnControllers.clear();
+					fileControllers.clear();
 				};
 			}, NAMESPACE + ': controllers');
 		}

@@ -392,8 +392,26 @@ const documentStub = {
   getElementById(id) {
     return styleNodes.find(node => node.id === id) || null
   },
+  /**
+   * The bundle tags its stylesheet with `data-plugin` so the module system owns
+   * it — an untagged `<style>` is claimed by the next plugin to materialize and
+   * deleted with it. This stub answers the one selector that mechanism needs, and
+   * records the attributes so the test can assert them.
+   */
+  querySelector(selector) {
+    const match = /^style\[data-plugin="([^"]+)"\]$/u.exec(selector)
+    if (match === null) return null
+    return styleNodes.find(node => node.attributes?.['data-plugin'] === match[1]) || null
+  },
   createElement() {
-    return { id: '', textContent: '', remove() {} }
+    return {
+      id: '',
+      textContent: '',
+      attributes: {},
+      setAttribute(name, value) { this.attributes[name] = String(value) },
+      getAttribute(name) { return this.attributes[name] ?? null },
+      remove() {},
+    }
   },
   addEventListener() {},
   removeEventListener() {},
@@ -576,7 +594,10 @@ const ctx = {
       localeRegistered = { namespace, dictionaries }
     },
     bind() {
-      return (key) => `t:${key}`
+      /* Answer the key UNCHANGED, which is what a page whose locale service does
+       * not own this namespace looks like: the plugin then falls back to its own
+       * dictionary — the same fallback that has to interpolate `{name}` itself. */
+      return (key) => key
     },
   },
   slots: {
@@ -599,11 +620,11 @@ try {
 }
 check('apply does not throw', applyError === null, applyError?.message)
 check('it injects the conversation view seat', injected.includes('conversation.view'), injected.join(','))
-check('it registers both of its tabs', registrations.length === 2, String(registrations.length))
-check('both seats are conversation.view', registrations.every(entry => entry.options.name === 'conversation.view'), JSON.stringify(registrations.map(entry => entry.options.name)))
-check('the tabs have distinct ids', JSON.stringify(registrations.map(entry => entry.options.id)) === JSON.stringify(['diff', 'turns']), JSON.stringify(registrations.map(entry => entry.options.id)))
+check('it registers all three of its tabs', registrations.length === 3, String(registrations.length))
+check('all seats are conversation.view', registrations.every(entry => entry.options.name === 'conversation.view'), JSON.stringify(registrations.map(entry => entry.options.name)))
+check('the tabs have distinct ids', JSON.stringify(registrations.map(entry => entry.options.id)) === JSON.stringify(['diff', 'turns', 'files']), JSON.stringify(registrations.map(entry => entry.options.id)))
 check('each tab sorts after the shipped views', registrations.every(entry => entry.options.order > 10), JSON.stringify(registrations.map(entry => entry.options.order)))
-check('the turn tab follows the changes tab', registrations[1].options.order > registrations[0].options.order, JSON.stringify(registrations.map(entry => entry.options.order)))
+check('the tabs keep the order they are listed in', registrations[0].options.order < registrations[1].options.order && registrations[1].options.order < registrations[2].options.order, JSON.stringify(registrations.map(entry => entry.options.order)))
 check('each label is a thunk (locale-following)', registrations.every(entry => typeof entry.options.label === 'function'))
 check('the labels differ', registrations[0].options.label() !== registrations[1].options.label(), `${registrations[0].options.label()} / ${registrations[1].options.label()}`)
 check('the dictionaries register under the plugin namespace', localeRegistered?.namespace === 'dsh-diff-view', localeRegistered?.namespace)
@@ -618,7 +639,7 @@ check('the stylesheet uses a theme token', styleNodes[0]?.textContent.includes('
  * accent bar, a brand tint or a bold name reads as a foreign element inside the
  * shell, so this guard exists to keep them out. */
 const styles = styleNodes[0]?.textContent ?? ''
-const rowRule = /\.dshdv-row\{([^}]*)\}/u.exec(styles)?.[1] ?? ''
+const rowRule = /^\.dshdv-row\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
 const selectedRule = /\.dshdv-row\[aria-selected="true"\]\{([^}]*)\}/u.exec(styles)?.[1] ?? ''
 const hoverRule = /\.dshdv-row:hover\{([^}]*)\}/u.exec(styles)?.[1] ?? ''
 check('a row uses the shell radius token', rowRule.includes('var(--dsw-radius-md'), rowRule)
@@ -628,7 +649,7 @@ check('hover uses the same fill as selection', hoverRule.includes('var(--dsw-ali
 check('selection adds no accent bar', selectedRule.includes('box-shadow') === false, selectedRule)
 check('selection adds no brand tint', selectedRule.includes('brand') === false, selectedRule)
 check('selection does not bold the name', styles.includes('.dshdv-row[aria-selected="true"] .dshdv-name') === false)
-const toolRule = /\.dshdv-btn\{([^}]*)\}/u.exec(styles)?.[1] ?? ''
+const toolRule = /^\.dshdv-btn\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
 check('the strip button is the shell 28px icon button', toolRule.includes('width:28px') && toolRule.includes('height:28px'), toolRule)
 check('the strip button fills with the shared interactive token', styles.includes('.dshdv-btn:hover{color:var(--dsw-alias-label-primary,#1b1f24);background:var(--dsw-alias-interactive-bg-hover'), 'btn hover rule')
 
@@ -803,6 +824,28 @@ const viewProps = {
       'turns.label.turn': '轮次',
       'turns.retry': '重试',
       'diff.norecord': '这一轮没有留下对比记录',
+      /* The file view's copy, including the one key that interpolates a value. */
+      'files.unsavedConfirm': '{name} 有未保存的修改，确定关闭吗？',
+      'files.binary': '二进制文件，不能编辑',
+      'files.noTabs': '从左侧选择一个文件打开',
+      'files.dirty': '未保存',
+      'files.saved': '已保存',
+      'files.loading': '正在读取…',
+      'files.label': '文件',
+      'files.highlight': '高亮',
+      'files.edit': '编辑',
+      'files.conflict': '磁盘上的这个文件已经变了',
+      'files.overwrite': '仍然覆盖',
+      'files.reload': '重新载入',
+      'files.close': '关闭',
+      'files.save': '保存',
+      'files.refresh': '刷新目录',
+      'files.fileCount': '{count} 个标签',
+      'files.empty': '这个目录是空的',
+      'files.truncated': '目录过大，只列出了前 {count} 项',
+      'files.oversized': '文件太大（上限 {count} 字节）',
+      'files.saveFailed': '保存失败：{detail}',
+      'files.root': '工作目录',
     }
     let text = copies[key] ?? key
     for (const [name, value] of Object.entries(values ?? {})) text = text.replace(`{${name}}`, String(value))
@@ -868,17 +911,17 @@ check('the selected path is shown in the header', findAll(tree, node => node.pro
  * line-number gutter (a different application's diff), the state colour with the
  * 3px inset bar on a tinted row, and the code-block font/radius on the card. */
 check('a line carries no line-number gutter', findAll(tree, node => ['dshdv-no', 'dshdv-sign'].includes(node.props?.className)).length === 0, JSON.stringify(findAll(tree, node => ['dshdv-no', 'dshdv-sign'].includes(node.props?.className)).map(node => node.props.className)))
-const lineRule = /\.dshdv-line\[data-kind="add"\]\{([^}]*)\}/u.exec(styles)?.[1] ?? ''
+const lineRule = /^\.dshdv-line\[data-kind="add"\]\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
 check('an added line uses the shell diff tint', lineRule.includes('var(--dsw-alias-code-diff-added'), lineRule)
 check('an added line uses the shell state colour', lineRule.includes('var(--dsw-alias-state-success-primary'), lineRule)
 check('an added line carries the shell inset bar', lineRule.includes('inset 3px 0 0'), lineRule)
-const codeRule = /\.dshdv-code\{([^}]*)\}/u.exec(styles)?.[1] ?? ''
+const codeRule = /^\.dshdv-code\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
 check('the card uses the shell code-block fill', codeRule.includes('var(--dsw-alias-markdown-code-block'), codeRule)
 check('the card uses the shell large radius', codeRule.includes('var(--dsw-radius-lg'), codeRule)
-const unifiedRule = /\.dshdv-line\{([^}]*)\}/u.exec(styles)?.[1] ?? ''
+const unifiedRule = /^\.dshdv-line\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
 check('diff lines use the shell markdown code font', unifiedRule.includes('var(--dsw-font-markdown-code-block'), unifiedRule)
 check('wrap is the shell attribute, not a row class', styles.includes('.dshdv-code[data-code-wrap="true"] .dshdv-line'), 'wrap rule')
-const bubbleRule = /\.dshdv-tvBubble\{([^}]*)\}/u.exec(styles)?.[1] ?? ''
+const bubbleRule = /^\.dshdv-tvBubble\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
 check('the question bubble uses the shell bubble fill', bubbleRule.includes('var(--dsw-specific-bubble'), bubbleRule)
 check('the question bubble uses the shell bubble radius', bubbleRule.includes('var(--dsw-radius-xl'), bubbleRule)
 check('the question bubble follows the body font axis', bubbleRule.includes('--dsh-content-font-size') && bubbleRule.includes('--dsh-content-font-delta'), bubbleRule)
@@ -890,7 +933,7 @@ check('the question bubble follows the body font axis', bubbleRule.includes('--d
  * band. Both halves are asserted because either one alone is a broken layout:
  * the attribute without clearance hides the last row, and clearance without the
  * attribute reserves space under a composer that is not there. */
-const rootRule = /\.dshdv-root\{([^}]*)\}/u.exec(styles)?.[1] ?? ''
+const rootRule = /^\.dshdv-root\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
 check('the tab host reserves the live composer height', rootRule.includes('--dshdv-bottom-clearance') && rootRule.includes('var(--dsh-composer-height'), rootRule)
 check('the tab host never scrolls itself', rootRule.includes('overflow:hidden') && rootRule.includes('height:100%'), rootRule)
 check('every inner scroller clears the composer', /\.dshdv-listBody,\.dshdv-scroll,\.dshdv-tvListBody,\.dshdv-tvSaid,\.dshdv-tvFileList\{padding-bottom:var\(--dshdv-bottom-clearance\)\}/u.test(styles), 'clearance rule')
@@ -916,8 +959,8 @@ const flexBasisOf = (rule) => {
   const basis = shorthand.trim().split(/\s+/u).find(part => part.endsWith('%')) ?? ''
   return Number.parseFloat(basis) || 0
 }
-const saidRule = /\.dshdv-tvSaid\{([^}]*)\}/u.exec(styles)?.[1] ?? ''
-const filesRule = /\.dshdv-tvFiles\{([^}]*)\}/u.exec(styles)?.[1] ?? ''
+const saidRule = /^\.dshdv-tvSaid\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
+const filesRule = /^\.dshdv-tvFiles\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
 const saidBasis = flexBasisOf(saidRule)
 const filesBasis = flexBasisOf(filesRule)
 check('the answer pane takes a third of the column', Math.abs(saidBasis - 100 / 3) < 0.01, `${saidBasis}% — ${saidRule}`)
@@ -1402,7 +1445,7 @@ const bareCtx = {
   },
 }
 barePlugin.apply(bareCtx)
-check('the plugin still registers its tabs without the primitives', bareRegistrations.length === 2, String(bareRegistrations.length))
+check('the plugin still registers its tabs without the primitives', bareRegistrations.length === 3, String(bareRegistrations.length))
 const BareTurns = bareRegistrations[1]?.component
 const bareFace = bareRegistrations[1]?.options.inject('sess-1')
 responses = new Map([
@@ -1510,6 +1553,171 @@ check('the grown tick leaves other turns alone', grownTick.urls.some(url => /tur
 // the row, which is the state the broken comparison could never reach.
 const settledTick = await turnsRefresh()
 check('a settled turn goes quiet again', settledTick.requests === 1 && settledTick.elements === 0, JSON.stringify(settledTick.urls))
+
+console.log('\nthe file view')
+const FilesView = registrations[2].component
+const filesFace = registrations[2].options.inject('sess-1')
+const TREE = path => `/api/dsh-diff/tree?sessionId=sess-1&path=${encodeURIComponent(path)}`
+const READ = path => `/api/dsh-diff/read?sessionId=sess-1&path=${encodeURIComponent(path)}`
+const WRITE = '/api/dsh-diff/write'
+const ROOT_TREE = TREE('')
+const SRC_TREE = TREE('src')
+
+const treeResponse = (path, entries, truncated = false) => ({ ok: true, cwd: 'F:/ws', path, entries, truncated })
+const readResponse = (path, text, extra = {}) => Object.assign({ ok: true, cwd: 'F:/ws', path, text, mtimeMs: 1000, bytes: text.length }, extra)
+
+function seedFiles() {
+  requests.length = 0
+  responses = new Map([
+    [ROOT_TREE, treeResponse('', [
+      { name: 'src', type: 'directory' },
+      { name: 'tools', type: 'directory' },
+      { name: 'README.md', type: 'file' },
+    ])],
+    [SRC_TREE, treeResponse('src', [
+      { name: 'keep.txt', type: 'file' },
+      { name: 'binary.bin', type: 'file' },
+    ])],
+    [READ('README.md'), readResponse('README.md', '# hello\nworld\n')],
+    [READ('src/keep.txt'), readResponse('src/keep.txt', 'first\nsecond\n')],
+    [READ('src/binary.bin'), readResponse('src/binary.bin', '', { binary: true })],
+  ])
+}
+
+seedFiles()
+unmount()
+let fileTree = await render(React.createElement(FilesView, Object.assign({}, viewProps, filesFace)))
+await settle(4)
+const showFiles = async () => {
+  fileTree = await rerender(React.createElement(FilesView, Object.assign({}, viewProps, filesFace)))
+}
+await showFiles()
+/** The tree rows currently rendered. */
+const treeRows = () => findAll(fileTree, node => node.type === 'button' && node.props?.['data-path'] !== undefined && node.props?.['role'] === 'treeitem')
+/** The open tabs currently rendered. */
+const tabNodes = () => findAll(fileTree, node => node.props?.['data-path'] !== undefined && node.props?.['role'] === 'tab')
+/** One editor pane by path. */
+const paneFor = path => findAll(fileTree, node => node.props?.['data-dsh-diff-files-pane'] === path)[0]
+/** The editor of one file, wherever it is mounted. */
+const editorFor = path => findAll(fileTree, node => node.props?.['data-dsh-diff-files-editor'] === path)[0]
+const closeButtons = () => findAll(fileTree, node => node.props?.className === 'dshdv-fvTabClose')
+const dirtyDots = () => findAll(fileTree, node => node.props?.className === 'dshdv-fvDot').length
+
+check('the file view reads the working directory root', requests.some(entry => entry.url === ROOT_TREE), JSON.stringify(requests.map(entry => entry.url)))
+check('the root level renders its entries', treeRows().length === 3, JSON.stringify(treeRows().map(node => node.props['data-path'])))
+check('the tree lists directories first', treeRows()[0].props['data-path'] === 'src', JSON.stringify(treeRows().map(node => node.props['data-path'])))
+check('a directory starts collapsed', treeRows()[0].props['aria-expanded'] === false, String(treeRows()[0].props['aria-expanded']))
+check('no editor is offered before a file is opened', textOf(fileTree).includes('从左侧选择一个文件打开'), textOf(fileTree))
+
+// Expanding a directory reads only that level.
+treeRows()[0].props.onClick()
+await settle(4)
+await showFiles()
+check('expanding a directory reads that level', requests.some(entry => entry.url === SRC_TREE), JSON.stringify(requests.map(entry => entry.url)))
+check('its children are rendered', treeRows().some(node => node.props['data-path'] === 'src/keep.txt'), JSON.stringify(treeRows().map(node => node.props['data-path'])))
+check('the directory reports itself expanded', treeRows()[0].props['aria-expanded'] === true, String(treeRows()[0].props['aria-expanded']))
+
+// Opening a file reads it and shows an editor holding its text.
+treeRows().find(node => node.props['data-path'] === 'src/keep.txt').props.onClick()
+await settle(4)
+await showFiles()
+check('opening a file reads it', requests.some(entry => entry.url === READ('src/keep.txt')), JSON.stringify(requests.map(entry => entry.url)))
+check('a tab appears for it', tabNodes().some(node => node.props['data-path'] === 'src/keep.txt'), JSON.stringify(tabNodes().map(node => node.props['data-path'])))
+check('the editor holds the file text', editorFor('src/keep.txt')?.props.defaultValue === 'first\nsecond\n', JSON.stringify(editorFor('src/keep.txt')?.props.defaultValue))
+check('the pane is the active one', paneFor('src/keep.txt')?.props['data-active'] === 'true', JSON.stringify(paneFor('src/keep.txt')?.props))
+
+// A second file: both panes stay MOUNTED, so the first draft cannot be lost.
+treeRows().find(node => node.props['data-path'] === 'README.md').props.onClick()
+await settle(4)
+await showFiles()
+check('every open file keeps its editor mounted', findAll(fileTree, node => node.props?.['data-dsh-diff-files-editor'] !== undefined).length === 2, JSON.stringify(findAll(fileTree, node => node.props?.['data-dsh-diff-files-editor'] !== undefined).map(node => node.props['data-dsh-diff-files-editor'])))
+check('only the active pane is visible', paneFor('src/keep.txt')?.props.hidden === true && paneFor('README.md')?.props.hidden !== true, JSON.stringify([paneFor('src/keep.txt')?.props.hidden, paneFor('README.md')?.props.hidden]))
+
+editorFor('README.md').props.onInput({ target: { value: '# hello\nworld\nedited\n' } })
+await settle(2)
+await showFiles()
+check('typing marks the tab dirty', dirtyDots() === 1, String(dirtyDots()))
+check('the status line says unsaved', textOf(fileTree).includes('未保存'), textOf(fileTree))
+
+// Ctrl+S saves with the freshness pair the read produced.
+responses.set(WRITE, { ok: true, path: 'README.md', mtimeMs: 2000, bytes: 24 })
+editorFor('README.md').props.onKeyDown({ ctrlKey: true, key: 's', preventDefault() {}, currentTarget: { value: '# hello\nworld\nedited\n' } })
+await settle(4)
+await showFiles()
+const savedCall = requests.filter(entry => entry.url === WRITE).pop()
+const savedBody = JSON.parse(savedCall?.body ?? '{}')
+check('the save is a POST to the write route', savedCall?.method === 'POST' && savedBody.path === 'README.md', JSON.stringify({ method: savedCall?.method, path: savedBody.path }))
+check('the save carries what the reader typed', savedBody.content === '# hello\nworld\nedited\n', JSON.stringify(savedBody.content))
+check('the save carries the freshness pair it read', savedBody.expected?.mtimeMs === 1000 && savedBody.expected?.bytes === '# hello\nworld\n'.length, JSON.stringify(savedBody.expected))
+check('a saved tab is no longer dirty', dirtyDots() === 0, String(dirtyDots()))
+
+// A refused save is a conflict with an explicit overwrite, never a silent retry.
+responses.set(WRITE, { __status: 409, ok: false, error: { code: 'diff/conflict', message: 'changed on disk' } })
+editorFor('src/keep.txt').props.onInput({ target: { value: 'first\nsecond\nlocal\n' } })
+await settle(2)
+await showFiles()
+editorFor('src/keep.txt').props.onKeyDown({ ctrlKey: true, key: 's', preventDefault() {}, currentTarget: { value: 'first\nsecond\nlocal\n' } })
+await settle(4)
+await showFiles()
+/* A conflict belongs to the tab that hit it, and is shown there — not on whatever
+ * tab the reader happens to be looking at. */
+check('a conflict is not shown on another tab', findAll(fileTree, node => node.props?.['data-dsh-diff-files-overwrite'] !== undefined).length === 0, textOf(fileTree))
+findAll(fileTree, node => node.props?.['className'] === 'dshdv-fvTabName' && node.props?.['title'] === 'src/keep.txt')[0].props.onClick()
+await settle(2)
+await showFiles()
+check('a refused save is reported as a conflict', findAll(fileTree, node => node.props?.['data-dsh-diff-files-overwrite'] !== undefined).length === 1, textOf(fileTree))
+check('the conflict keeps the draft dirty', dirtyDots() === 1, String(dirtyDots()))
+responses.set(WRITE, { ok: true, path: 'src/keep.txt', mtimeMs: 3000, bytes: 19 })
+requests.length = 0
+findAll(fileTree, node => node.props?.['data-dsh-diff-files-overwrite'] !== undefined)[0].props.onClick()
+await settle(4)
+await showFiles()
+const overwriteBody = JSON.parse(requests.filter(entry => entry.url === WRITE).pop()?.body ?? '{}')
+check('an explicit overwrite sends no expectation', overwriteBody.expected === undefined, JSON.stringify(overwriteBody.expected))
+check('and it clears the conflict', findAll(fileTree, node => node.props?.['data-dsh-diff-files-overwrite'] !== undefined).length === 0, textOf(fileTree))
+
+// Closing a dirty tab asks first; refusing keeps it.
+const confirmations = []
+windowStub.confirm = (question) => { confirmations.push(question); return false }
+editorFor('README.md').props.onInput({ target: { value: '# hello\nworld\ndirty\n' } })
+await settle(2)
+await showFiles()
+const readmeTabIndex = tabNodes().findIndex(node => node.props['data-path'] === 'README.md')
+closeButtons()[readmeTabIndex].props.onClick()
+await settle(2)
+await showFiles()
+check('closing a dirty tab asks first', confirmations.length === 1 && confirmations[0].includes('README.md'), JSON.stringify(confirmations))
+check('refusing the question keeps the tab', tabNodes().some(node => node.props['data-path'] === 'README.md'), JSON.stringify(tabNodes().map(node => node.props['data-path'])))
+windowStub.confirm = () => true
+closeButtons()[readmeTabIndex].props.onClick()
+await settle(2)
+await showFiles()
+check('accepting closes it', tabNodes().every(node => node.props['data-path'] !== 'README.md'), JSON.stringify(tabNodes().map(node => node.props['data-path'])))
+
+// Binary files are refused with a reason instead of an editor.
+treeRows().find(node => node.props['data-path'] === 'src/binary.bin').props.onClick()
+await settle(4)
+await showFiles()
+check('a binary file gets no editor', editorFor('src/binary.bin') === undefined)
+check('and says why', textOf(fileTree).includes('二进制文件'), textOf(fileTree))
+
+// The highlight toggle renders the shell's own code card — for a TEXT tab; a
+// binary tab has no highlighted view to offer, only its "not editable" notice.
+tabNodes().find(node => node.props['data-path'] === 'src/keep.txt') !== undefined
+findAll(fileTree, node => node.props?.['className'] === 'dshdv-fvTabName' && node.props?.['title'] === 'src/keep.txt')[0].props.onClick()
+await settle(2)
+await showFiles()
+check('a text tab offers the highlight toggle', findAll(fileTree, node => node.props?.['data-dsh-diff-files-highlight-toggle'] !== undefined).length === 1, textOf(fileTree))
+findAll(fileTree, node => node.props?.['data-dsh-diff-files-highlight-toggle'] !== undefined)[0].props.onClick()
+await settle(2)
+await showFiles()
+check('the highlighted view is mounted', findAll(fileTree, node => node.props?.['data-dsh-diff-files-highlight'] !== undefined).length === 1, textOf(fileTree))
+check('and it went through the shell\'s code card', findAll(fileTree, node => node.props?.['data-markdown'] !== undefined || node.props?.className === 'dshdv-fvHighlight').length >= 1, textOf(fileTree))
+
+/* The stylesheet is tagged with the plugin's own name. Untagged, the module
+ * loader hands it to the next plugin that materializes and deletes it when that
+ * plugin unloads — a stylesheet that belongs to nobody does not survive. */
+check('the stylesheet is tagged as this plugin\'s', styleNodes[0]?.attributes?.['data-plugin'] === 'dsh-diff-view', JSON.stringify(styleNodes[0]?.attributes))
 
 console.log('\nunmount')
 unmount()

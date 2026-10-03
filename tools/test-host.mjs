@@ -361,9 +361,12 @@ async function main() {
   }
   const logger = { info() {}, warn() {} }
   const routes = routesModule.makeRoutes({ ctx, config: {}, logger })
-  equal(routes.map(route => `${route.kind} ${route.path}`), ['exact /api/dsh-diff/files', 'exact /api/dsh-diff/file', 'exact /api/dsh-diff/turns', 'exact /api/dsh-diff/turn', 'exact /api/dsh-diff/commit'], 'the family mounts its exact routes')
+  equal(routes.map(route => `${route.kind} ${route.path}`), ['exact /api/dsh-diff/files', 'exact /api/dsh-diff/file', 'exact /api/dsh-diff/tree', 'exact /api/dsh-diff/read', 'exact /api/dsh-diff/write', 'exact /api/dsh-diff/turns', 'exact /api/dsh-diff/turn', 'exact /api/dsh-diff/commit'], 'the family mounts its exact routes')
   const filesRoute = routes.find(route => route.path === routesModule.ROUTES.files).handler
   const fileRoute = routes.find(route => route.path === routesModule.ROUTES.file).handler
+  const treeRoute = routes.find(route => route.path === routesModule.ROUTES.tree).handler
+  const readRoute = routes.find(route => route.path === routesModule.ROUTES.read).handler
+  const writeRoute = routes.find(route => route.path === routesModule.ROUTES.write).handler
   const turnsRoute = routes.find(route => route.path === routesModule.ROUTES.turns).handler
   const turnRoute = routes.find(route => route.path === routesModule.ROUTES.turn).handler
 
@@ -487,6 +490,84 @@ async function main() {
 
   const derivedComparison = await callRoute(fileRoute, `/api/dsh-diff/file?scope=session&sessionId=fixture&path=${encodeURIComponent(derivedPath)}`)
   ok(derivedComparison.status === 404 && derivedComparison.body?.error?.code === 'diff/no-comparison', 'a derived path with no stored comparison answers no-comparison', JSON.stringify(derivedComparison.body))
+
+  // -- the file view's data plane -------------------------------------------
+  console.log('# file view')
+  const fileCwd = fixture.root.replace(/\\/gu, '/')
+  const treeRoot = await callRoute(treeRoute, '/api/dsh-diff/tree?sessionId=fixture')
+  ok(treeRoot.status === 200 && treeRoot.body?.cwd === fixture.root, 'the tree answers with the Session directory', JSON.stringify(treeRoot.body?.cwd))
+  const names = (treeRoot.body?.entries ?? []).map(entry => entry.name)
+  ok(names.includes('src') && names.includes('untracked.txt'), 'the root listing carries its entries', JSON.stringify(names))
+  ok((treeRoot.body?.entries ?? []).every(entry => entry.type === 'directory' || entry.type === 'file'), 'each entry names its kind', JSON.stringify(treeRoot.body?.entries))
+  ok(treeRoot.body?.entries?.[0]?.type === 'directory', 'directories come first', JSON.stringify(treeRoot.body?.entries?.map(entry => [entry.name, entry.type])))
+  ok(treeRoot.body?.truncated === false, 'a small directory is not truncated', String(treeRoot.body?.truncated))
+
+  const treeSub = await callRoute(treeRoute, '/api/dsh-diff/tree?sessionId=fixture&path=src')
+  ok(treeSub.status === 200 && (treeSub.body?.entries ?? []).some(entry => entry.name === 'keep.txt'), 'a subdirectory lists its own entries', JSON.stringify(treeSub.body?.entries?.map(entry => entry.name)))
+  const outside = await callRoute(treeRoute, `/api/dsh-diff/tree?sessionId=fixture&path=${encodeURIComponent('../../')}`)
+  ok(outside.status === 400 && outside.body?.error?.code === 'diff/bad-path', 'a path that escapes the workspace is refused', JSON.stringify(outside.body))
+  const absentDir = await callRoute(treeRoute, '/api/dsh-diff/tree?sessionId=fixture&path=nope')
+  ok(absentDir.status === 404 && absentDir.body?.error?.code === 'diff/not-found', 'a missing directory says so', JSON.stringify(absentDir.body))
+
+  const readKeep = await callRoute(readRoute, `/api/dsh-diff/read?sessionId=fixture&path=${encodeURIComponent('src/keep.txt')}`)
+  ok(readKeep.status === 200 && typeof readKeep.body?.text === 'string', 'a file reads as text', JSON.stringify(readKeep.body?.error))
+  ok(typeof readKeep.body?.mtimeMs === 'number' && typeof readKeep.body?.bytes === 'number', 'the read carries the freshness pair', JSON.stringify([readKeep.body?.mtimeMs, readKeep.body?.bytes]))
+  const binaryRead = await callRoute(readRoute, `/api/dsh-diff/read?sessionId=fixture&path=${encodeURIComponent('src/binary.bin')}`)
+  ok(binaryRead.status === 200 && binaryRead.body?.binary === true && binaryRead.body?.text === undefined, 'a binary file is reported as one, without text', JSON.stringify({ binary: binaryRead.body?.binary, hasText: binaryRead.body?.text !== undefined }))
+  const dirRead = await callRoute(readRoute, `/api/dsh-diff/read?sessionId=fixture&path=src`)
+  ok(dirRead.status === 400 && dirRead.body?.error?.code === 'diff/not-a-file', 'a directory cannot be read as a file', JSON.stringify(dirRead.body))
+
+  const notPost = await callRoute(writeRoute, '/api/dsh-diff/write')
+  ok(notPost.status === 405, 'saving refuses a GET', JSON.stringify(notPost.body))
+  const saveWrite = await callRoute(writeRoute, '/api/dsh-diff/write', {
+    method: 'POST',
+    body: JSON.stringify({ sessionId: 'fixture', path: 'src/keep.txt', content: 'first\nsecond\nthird\n', expected: { mtimeMs: readKeep.body.mtimeMs, bytes: readKeep.body.bytes } }),
+  })
+  ok(saveWrite.status === 200 && saveWrite.body?.ok === true, 'a save lands', JSON.stringify(saveWrite.body))
+  const reread = await callRoute(readRoute, `/api/dsh-diff/read?sessionId=fixture&path=${encodeURIComponent('src/keep.txt')}`)
+  ok(reread.body?.text === 'first\nsecond\nthird\n', 'the saved bytes are what the next read sees', JSON.stringify(reread.body?.text))
+  ok(reread.body?.mtimeMs !== readKeep.body.mtimeMs || reread.body?.bytes === saveWrite.body.bytes, 'the write answers with the new freshness pair', JSON.stringify(saveWrite.body))
+
+  // The whole point of the pair: a save whose read is stale must not land.
+  const staleWrite = await callRoute(writeRoute, '/api/dsh-diff/write', {
+    method: 'POST',
+    body: JSON.stringify({ sessionId: 'fixture', path: 'src/keep.txt', content: 'clobbered\n', expected: { mtimeMs: readKeep.body.mtimeMs, bytes: readKeep.body.bytes } }),
+  })
+  ok(staleWrite.status === 409 && staleWrite.body?.error?.code === 'diff/conflict', 'a stale save is refused, not applied', JSON.stringify(staleWrite.body))
+  const notClobbered = await callRoute(readRoute, `/api/dsh-diff/read?sessionId=fixture&path=${encodeURIComponent('src/keep.txt')}`)
+  ok(notClobbered.body?.text === 'first\nsecond\nthird\n', 'the refused save changed nothing', JSON.stringify(notClobbered.body?.text))
+
+  // An explicit overwrite (no expectation) is what the reader asks for after seeing the conflict.
+  const forced = await callRoute(writeRoute, '/api/dsh-diff/write', {
+    method: 'POST',
+    body: JSON.stringify({ sessionId: 'fixture', path: 'src/keep.txt', content: 'forced\n' }),
+  })
+  ok(forced.status === 200, 'an explicit overwrite lands', JSON.stringify(forced.body))
+
+  /* Creating a file is the one case with no freshness to compare: the reader has
+   * nothing to be stale against, so an expectationless save creates it — and a
+   * save that DOES carry an expectation for a file that is not there is a stale
+   * read, which must be refused like any other. */
+  const created = await callRoute(writeRoute, '/api/dsh-diff/write', {
+    method: 'POST',
+    body: JSON.stringify({ sessionId: 'fixture', path: 'src/brand-new.txt', content: 'hello\n' }),
+  })
+  ok(created.status === 200 && created.body?.created === true, 'a new file is created by a save with no expectation', JSON.stringify(created.body))
+  const createdAgain = await callRoute(writeRoute, '/api/dsh-diff/write', {
+    method: 'POST',
+    body: JSON.stringify({ sessionId: 'fixture', path: 'src/brand-new.txt', content: 'hello again\n', expected: { mtimeMs: 0, bytes: 0 } }),
+  })
+  ok(createdAgain.status === 409, 'a stale expectation on an existing file is refused', JSON.stringify(createdAgain.body))
+  const escapeWrite = await callRoute(writeRoute, '/api/dsh-diff/write', {
+    method: 'POST',
+    body: JSON.stringify({ sessionId: 'fixture', path: '../outside.txt', content: 'nope\n' }),
+  })
+  ok(escapeWrite.status === 400 && escapeWrite.body?.error?.code === 'diff/bad-path', 'a save cannot escape the workspace', JSON.stringify(escapeWrite.body))
+  const missingContent = await callRoute(writeRoute, '/api/dsh-diff/write', {
+    method: 'POST',
+    body: JSON.stringify({ sessionId: 'fixture', path: 'src/keep.txt' }),
+  })
+  ok(missingContent.status === 400 && missingContent.body?.error?.code === 'diff/bad-request', 'a save without content is refused', JSON.stringify(missingContent.body))
 
   // -- the per-turn browser ------------------------------------------------
   console.log('# turns')

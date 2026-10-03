@@ -1,0 +1,33 @@
+dsh-diff-view: a file view — tree plus a tabbed editor that can save
+
+Third tab, built from two installed references: dsh-vscode's files panel and
+dsh-better-sidebar's tabbed workbench.
+
+Host (lib/workspace.js + /tree, /read, /write):
+- one directory level per request, directories first, capped and refused when
+  the path escapes the Session's own working directory
+- a read returns the text AND the (mtimeMs, bytes) pair
+- a write lands atomically (tmp + rename) and only if that pair still matches
+  the disk; otherwise 409 diff/conflict. The shell's workspaceFiles cannot do
+  this: it exposes no write, and its stat.version is an opaque token that cannot
+  be compared against anything local -- so both ends of the comparison are ours.
+
+Client (tab "files", order 22):
+- lazy tree with per-level loading/failed/empty/truncated rows and dirty badges
+- every open tab keeps its pane MOUNTED (inactive hidden), so switching tabs
+  cannot discard a draft
+- an uncontrolled textarea: typing costs no render, the model hears only the
+  false->true dirty transition; Mod-s saves
+- a conflict is shown on the tab that hit it, with an explicit overwrite or
+  reload -- never a silent retry
+- a read-only highlighted mode through the shell's own CodeBlock
+- open tabs persist per Session (debounced)
+
+Three latent defects found while building this:
+- the stylesheet was untagged, so the module loader could hand it to the next
+  plugin that materializes and delete it with that plugin
+- the editor head and conflict bar were rendered twice
+- the fallback translator ignored interpolation values, so a page without the
+  locale service showed "{name} has unsaved changes"
+
+127 -> 150 host checks, 233 -> 267 client checks
