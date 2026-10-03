@@ -43,8 +43,16 @@ window.__ModuleLoader__.load({
 		 * ------------------------------------------------------------------ */
 
 		var NAMESPACE = 'dsh-diff-view';
-		/** The view tab's id in the conversation's roster. */
+		/** The changes tab's id in the conversation's roster. */
 		var VIEW_ID = 'diff';
+		/** The per-turn browser's id: the same data, read as a conversation. */
+		var TURNS_ID = 'turns';
+		/** How often the turn browser re-reads its list while it is on screen. */
+		var TURNS_REFRESH_MS = 8_000;
+		/** Its idle cadence: a turn list changes at turn boundaries, not every second. */
+		var TURNS_REFRESH_IDLE_MS = 30_000;
+		/** How long the reader's activity keeps the faster cadence alive. */
+		var TURNS_ACTIVE_MS = 30_000;
 		/** How long a silent auto-refresh waits between reads while the reader is active. */
 		var AUTO_REFRESH_MS = 4000;
 		/** The idle cadence: still fresh, but no longer every few seconds. */
@@ -69,6 +77,8 @@ window.__ModuleLoader__.load({
 		var FILES_URL = '/api/dsh-diff/files';
 		var FILE_URL = '/api/dsh-diff/file';
 		var COMMIT_URL = '/api/dsh-diff/commit';
+		var TURNS_URL = '/api/dsh-diff/turns';
+		var TURN_URL = '/api/dsh-diff/turn';
 
 		var GIT = 'git';
 		var SESSION = 'session';
@@ -117,6 +127,22 @@ window.__ModuleLoader__.load({
 				'commit.done': '已提交 {revision}',
 				'commit.clean': '没有需要提交的改动',
 				'commit.failed': '提交失败：{detail}',
+				'turns.label': '逐轮',
+				'turns.ask': '提问',
+				'turns.answer': '最终应答',
+				'turns.noAsk': '这一轮没有记录到提问',
+				'turns.noAnswer': '这一轮还没有应答',
+				'turns.truncated': '内容较长，此处只显示前 {count} 字',
+				'turns.list.loading': '正在读取轮次…',
+				'turns.list.empty': '这个会话还没有轮次记录',
+				'turns.turn': '第 {turn} 轮',
+				'turns.open': '进行中',
+				'turns.files': '本轮改动',
+				'turns.fileCount': '{count} 个文件',
+				'turns.noFiles': '这一轮没有改动文件',
+				'turns.detail.loading': '正在读取这一轮…',
+				'turns.label.turn': '轮次',
+				'turns.retry': '重试',
 				'list.empty': '当前范围没有改动',
 				'list.emptyFiltered': '没有匹配的文件',
 				'list.loading': '正在读取改动…',
@@ -191,6 +217,22 @@ window.__ModuleLoader__.load({
 				'commit.done': 'Committed {revision}',
 				'commit.clean': 'Nothing to commit',
 				'commit.failed': 'Commit failed: {detail}',
+				'turns.label': 'Turns',
+				'turns.ask': 'Asked',
+				'turns.answer': 'Answered',
+				'turns.noAsk': 'No prompt was recorded for this turn',
+				'turns.noAnswer': 'This turn has not answered yet',
+				'turns.truncated': 'Long content: the first {count} characters are shown',
+				'turns.list.loading': 'Reading turns…',
+				'turns.list.empty': 'This session has no recorded turns',
+				'turns.turn': 'Turn {turn}',
+				'turns.open': 'running',
+				'turns.files': 'Changed here',
+				'turns.fileCount': '{count} files',
+				'turns.noFiles': 'This turn changed no files',
+				'turns.detail.loading': 'Reading this turn…',
+				'turns.label.turn': 'Turn',
+				'turns.retry': 'Retry',
 				'list.empty': 'No changes in this scope',
 				'list.emptyFiltered': 'No file matches the filter',
 				'list.loading': 'Reading changes…',
@@ -276,6 +318,34 @@ window.__ModuleLoader__.load({
 			'.dshdv-modes .dshdv-turn{padding:2px 8px}',
 			'.dshdv-modes .dshdv-turn[aria-pressed="true"]{background:var(--dsw-alias-bg-layer-1,#fff)}',
 			'.dshdv-turnTag{flex:none;color:var(--dsw-alias-label-tertiary,#8b939e);font-size:11px;font-variant-numeric:tabular-nums}',
+			/* The per-turn browser: turns on the left, that turn's question, answer
+			 * and changed files stacked on the right. */
+			'.dshdv-tv{display:flex;flex:1 1 auto;min-height:0;min-width:0;background:var(--dsw-alias-bg-layer-1,#fff)}',
+			'.dshdv-tvList{display:flex;flex-direction:column;flex:0 0 196px;min-width:0;border-right:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.08))}',
+			'.dshdv-tvListBody{flex:1 1 auto;min-height:0;overflow-y:auto;padding:8px 0 8px 8px;margin-right:2px}',
+			'.dshdv-tvRow{display:flex;align-items:center;gap:6px;width:100%;border:0;background:transparent;text-align:left;font:inherit;font-size:12px;line-height:18px;color:var(--dsw-alias-label-primary,#1b1f24);padding:5px 8px;border-radius:var(--dsw-radius-md,12px);cursor:pointer}',
+			'.dshdv-tvRow:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}',
+			'.dshdv-tvRow[aria-selected="true"]{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}',
+			'.dshdv-tvRow:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#3b6cf6);outline-offset:1px}',
+			'.dshdv-tvRowTurn{flex:none;font-variant-numeric:tabular-nums}',
+			'.dshdv-tvRowCounts{display:inline-flex;align-items:center;gap:5px;margin-left:auto;color:var(--dsw-alias-label-tertiary,#8b939e);font-size:11px;font-variant-numeric:tabular-nums}',
+			'.dshdv-tvTag{flex:none;padding:1px 6px;border-radius:var(--dsw-radius-sm,6px);background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06));color:var(--dsw-alias-label-tertiary,#8b939e);font-size:11px}',
+			'.dshdv-tvMain{display:flex;flex-direction:column;flex:1 1 auto;min-width:0;min-height:0}',
+			'.dshdv-tvSaid{flex:0 1 auto;max-height:42%;overflow-y:auto;padding:10px 12px;border-bottom:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.08))}',
+			'.dshdv-tvSaidBlock+.dshdv-tvSaidBlock{margin-top:12px}',
+			'.dshdv-tvLabel{margin:0 0 4px;color:var(--dsw-alias-label-tertiary,#8b939e);font-size:11px}',
+			'.dshdv-tvText{margin:0;white-space:pre-wrap;word-break:break-word;font-size:13px;line-height:1.6;color:var(--dsw-alias-label-primary,#1b1f24)}',
+			'.dshdv-tvEmpty{margin:0;color:var(--dsw-alias-label-tertiary,#8b939e);font-size:12px}',
+			'.dshdv-tvNote{margin:6px 0 0;color:var(--dsw-alias-label-tertiary,#8b939e);font-size:11px}',
+			'.dshdv-tvFiles{display:flex;flex-direction:column;flex:1 1 auto;min-height:0}',
+			'.dshdv-tvFilesHead{display:flex;align-items:center;gap:8px;flex:none;height:32px;padding:0 12px;border-bottom:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.08))}',
+			'.dshdv-tvFilesHead .dshdv-tvLabel{margin:0}',
+			'.dshdv-tvFilesBody{display:flex;flex:1 1 auto;min-height:0;min-width:0}',
+			'.dshdv-tvFileList{flex:0 0 190px;min-width:0;overflow-y:auto;padding:6px 0 6px 6px;border-right:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.08))}',
+			'.dshdv-tvFile{display:flex;align-items:center;gap:6px;width:100%;border:0;background:transparent;text-align:left;font:inherit;font-size:12px;line-height:18px;color:var(--dsw-alias-label-primary,#1b1f24);padding:5px 7px;border-radius:var(--dsw-radius-md,12px);cursor:pointer}',
+			'.dshdv-tvFile:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}',
+			'.dshdv-tvFile[aria-selected="true"]{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}',
+			'.dshdv-tvDiff{display:flex;flex-direction:column;flex:1 1 auto;min-width:0;min-height:0}',
 			'.dshdv-add{color:var(--dsw-alias-state-success-primary,#1a7f37)}',
 			'.dshdv-del{color:var(--dsw-alias-state-error-primary,#c0392b)}',
 			'.dshdv-main{display:flex;flex:1 1 auto;min-height:0}',
@@ -706,6 +776,45 @@ window.__ModuleLoader__.load({
 			return file.at === undefined ? undefined : file.at.turn;
 		}
 
+		/** Read one failure's message key from the route's error envelope. */
+		function failureOf(status, body) {
+			var code = body !== null && body !== undefined && body.error !== undefined ? body.error.code : undefined;
+			if (code === 'diff/no-git') return 'error.noGit';
+			if (code === 'diff/unknown-session') return 'error.unknownSession';
+			if (code === 'diff/not-a-repository') return 'error.notRepository';
+			if (code === 'diff/unavailable') return 'error.unavailable';
+			if (code === 'diff/forbidden') return 'error.forbidden';
+			if (status === 403) return 'error.forbidden';
+			return 'error.generic';
+		}
+
+		/** Fetch one route and decode its envelope; a refusal is a value, not a throw. */
+		async function readJson(url, signal) {
+			var response = await fetch(url, { credentials: 'same-origin', signal: signal });
+			var body = null;
+			try {
+				body = await response.json();
+			} catch (error) {
+				body = null;
+			}
+			if (!response.ok || body === null || body.ok !== true) {
+				return { failed: failureOf(response.status, body), detail: body !== null && body.error !== undefined ? body.error.message : undefined };
+			}
+			return { value: body };
+		}
+
+		function filesUrl(scope, sessionId) {
+			return FILES_URL + '?scope=' + encodeURIComponent(scope) + '&sessionId=' + encodeURIComponent(sessionId);
+		}
+
+		function fileUrl(scope, sessionId, path, at) {
+			var url = FILE_URL + '?scope=' + encodeURIComponent(scope) + '&sessionId=' + encodeURIComponent(sessionId) + '&path=' + encodeURIComponent(path);
+			if (at !== undefined && at !== null) {
+				url += '&at=' + encodeURIComponent(String(at.turn) + ':' + String(at.seq) + ':' + String(at.index));
+			}
+			return url;
+		}
+
 		function createController() {
 			var listeners = new Set();
 			var state = initialState();
@@ -791,44 +900,6 @@ window.__ModuleLoader__.load({
 				return { files: files, changed: changed };
 			}
 
-			/** Read one failure's message key from the route's error envelope. */
-			function failureOf(status, body) {
-				var code = body !== null && body !== undefined && body.error !== undefined ? body.error.code : undefined;
-				if (code === 'diff/no-git') return 'error.noGit';
-				if (code === 'diff/unknown-session') return 'error.unknownSession';
-				if (code === 'diff/not-a-repository') return 'error.notRepository';
-				if (code === 'diff/unavailable') return 'error.unavailable';
-				if (code === 'diff/forbidden') return 'error.forbidden';
-				if (status === 403) return 'error.forbidden';
-				return 'error.generic';
-			}
-
-			/** Fetch one route and decode its envelope; a refusal is a value, not a throw. */
-			async function readJson(url, signal) {
-				var response = await fetch(url, { credentials: 'same-origin', signal: signal });
-				var body = null;
-				try {
-					body = await response.json();
-				} catch (error) {
-					body = null;
-				}
-				if (!response.ok || body === null || body.ok !== true) {
-					return { failed: failureOf(response.status, body), detail: body !== null && body.error !== undefined ? body.error.message : undefined };
-				}
-				return { value: body };
-			}
-
-			function filesUrl(scope, sessionId) {
-				return FILES_URL + '?scope=' + encodeURIComponent(scope) + '&sessionId=' + encodeURIComponent(sessionId);
-			}
-
-			function fileUrl(scope, sessionId, path, at) {
-				var url = FILE_URL + '?scope=' + encodeURIComponent(scope) + '&sessionId=' + encodeURIComponent(sessionId) + '&path=' + encodeURIComponent(path);
-				if (at !== undefined && at !== null) {
-					url += '&at=' + encodeURIComponent(String(at.turn) + ':' + String(at.seq) + ':' + String(at.index));
-				}
-				return url;
-			}
 
 			var controller = {
 				getSnapshot: function () {
@@ -1132,6 +1203,392 @@ window.__ModuleLoader__.load({
 				},
 			};
 			return controller;
+		}
+
+		/* ------------------------------------------------------------------ *
+		 * The per-turn browser
+		 *
+		 * Same files, read as a conversation: one row per turn on the left, that
+		 * turn's question and answer above its changed files on the right. The
+		 * change half comes from the recorder (memory, gone on restart); the
+		 * question and answer come from the Session log (durable), which is why a
+		 * turn from days ago still shows what was asked even when its comparison
+		 * is no longer available.
+		 * ------------------------------------------------------------------ */
+
+		/** The state the turn browser starts from. */
+		function turnsState() {
+			return {
+				phase: 'idle',
+				error: null,
+				turns: [],
+				/** The turn in view. */
+				selected: null,
+				open: false,
+				prompt: null,
+				answer: null,
+				detailPhase: 'idle',
+				detailError: null,
+				files: [],
+				added: 0,
+				deleted: 0,
+				/** The file whose comparison is held, and its print. */
+				file: null,
+				filePrint: undefined,
+				diff: null,
+				diffPath: undefined,
+				diffPhase: 'idle',
+				diffError: null,
+			};
+		}
+
+		/**
+		 * What one turn's held detail describes.
+		 *
+		 * The detail is re-read when the turn changes or when its own numbers move;
+		 * identity alone would freeze the pane while a running turn keeps writing.
+		 */
+		function detailPrint(turn, files) {
+			var counts = files.map(function (file) { return [file.path, file.status, file.added, file.deleted].join(':'); }).join(',');
+			return [String(turn), counts].join('\u0000');
+		}
+
+		function createTurnsController(t) {
+			var listeners = new Set();
+			var state = turnsState();
+			var generation = 0;
+			var detailGeneration = 0;
+			var diffGeneration = 0;
+			/** Mount epoch: a remount must not inherit the previous mount's reads. */
+			var epoch = 0;
+
+			function emit() {
+				listeners.forEach(function (listener) { listener(); });
+			}
+
+			/** Publish only what the view can see (see the diff view's own patch). */
+			function patch(next) {
+				if (sameState(state, next)) return;
+				state = Object.assign({}, state, next);
+				emit();
+			}
+
+			function emptyTurn() {
+				return {
+					selected: null, open: false, prompt: null, answer: null,
+					files: [], added: 0, deleted: 0, detailPhase: 'idle', detailError: null,
+					file: null, filePrint: undefined, diff: null, diffPath: undefined,
+					diffPhase: 'idle', diffError: null,
+				};
+			}
+
+			var controller = {
+				getSnapshot: function () { return state; },
+				subscribe: function (listener) {
+					listeners.add(listener);
+					return function () { listeners.delete(listener); };
+				},
+
+				/**
+				 * Read the turn list, then the turn it selects.
+				 *
+				 * A silent read (the auto-refresh tick) never touches the turn in
+				 * view: its text is already on screen and a running turn's answer is
+				 * only interesting once it settles.
+				 */
+				load: async function (sessionId, options) {
+					var silent = options !== undefined && options.silent === true;
+					var current = (generation += 1);
+					var started = epoch;
+					var stale = function () { return current !== generation || started !== epoch; };
+					if (!silent) patch(Object.assign({ phase: 'loading', error: null, turns: [] }, emptyTurn()));
+					var result;
+					try {
+						result = await readJson(TURN_LIST_URL(sessionId), undefined);
+					} catch (error) {
+						if (stale()) return;
+						patch(Object.assign({ phase: 'error', error: 'error.generic', turns: [] }, emptyTurn()));
+						return;
+					}
+					if (stale()) return;
+					if (result.failed !== undefined) {
+						patch(Object.assign({ phase: 'error', error: result.failed, turns: [] }, emptyTurn()));
+						return;
+					}
+					var rows = Array.isArray(result.value.turns) ? result.value.turns : [];
+					var keep = state.selected !== null && rows.some(function (row) { return row.turn === state.selected; });
+					var selected = keep ? state.selected : (rows.length > 0 ? rows[0].turn : null);
+					patch({ phase: 'ready', error: null, turns: rows });
+					if (selected === null) {
+						if (state.selected !== null) patch(emptyTurn());
+						return;
+					}
+					if (selected !== state.selected) {
+						await controller.selectTurn(sessionId, selected);
+						return;
+					}
+					// Same turn: refresh its detail only when its own numbers moved, so
+					// a running turn keeps up without re-reading an unchanged one.
+					var row = rows.find(function (entry) { return entry.turn === selected; });
+					var nextPrint = detailPrint(selected, row === undefined ? [] : [{ path: '', status: '', added: row.added, deleted: row.deleted }]);
+					if (!silent || nextPrint !== state.filePrint) {
+						await controller.selectTurn(sessionId, selected);
+					}
+				},
+
+				/** Show one turn: its question and answer, and its changed files. */
+				selectTurn: async function (sessionId, turn) {
+					var current = (detailGeneration += 1);
+					var started = epoch;
+					var stale = function () { return current !== detailGeneration || started !== epoch; };
+					patch({ selected: turn, detailPhase: 'loading', detailError: null, file: null, filePrint: undefined, diff: null, diffPath: undefined, diffPhase: 'idle', diffError: null });
+					var result;
+					try {
+						result = await readJson(TURN_DETAIL_URL(sessionId, turn), undefined);
+					} catch (error) {
+						if (stale()) return;
+						patch({ detailPhase: 'error', detailError: 'error.generic' });
+						return;
+					}
+					if (stale()) return;
+					if (result.failed !== undefined) {
+						patch({ detailPhase: 'error', detailError: result.failed });
+						return;
+					}
+					var value = result.value;
+					var files = Array.isArray(value.files) ? value.files : [];
+					patch({
+						detailPhase: 'ready',
+						detailError: null,
+						open: value.open === true,
+						prompt: value.prompt === null || value.prompt === undefined ? null : value.prompt,
+						answer: value.answer === null || value.answer === undefined ? null : value.answer,
+						files: files,
+						added: value.added || 0,
+						deleted: value.deleted || 0,
+						filePrint: detailPrint(turn, files),
+					});
+					var first = files.length > 0 ? files[0].path : null;
+					if (first !== null) await controller.selectFile(sessionId, first);
+				},
+
+				/** Read one changed file's comparison for the turn in view. */
+				selectFile: async function (sessionId, path) {
+					if (state.file === path && (state.diffPhase === 'ready' || state.diffPhase === 'loading' || state.diffPhase === 'norecord')) return;
+					var file = state.files.find(function (entry) { return entry.path === path; });
+					if (file === undefined) return;
+					var current = (diffGeneration += 1);
+					var started = epoch;
+					var stale = function () { return current !== diffGeneration || started !== epoch; };
+					patch({ file: path, diffPhase: 'loading', diffError: null });
+					if (file.at === null || file.at === undefined) {
+						/* The recorder kept no comparison for this file-turn (a log-derived
+						 * edit): reading one would 404, and none is the honest answer. */
+						patch({ diff: null, diffPath: undefined, diffPhase: 'norecord' });
+						return;
+					}
+					var result;
+					try {
+						result = await readJson(fileUrl(SESSION, sessionId, path, file.at), undefined);
+					} catch (error) {
+						if (stale()) return;
+						patch({ diffPhase: 'error', diffError: 'error.generic', diff: null, diffPath: undefined });
+						return;
+					}
+					if (stale()) return;
+					if (result.failed !== undefined) {
+						patch({ diffPhase: 'error', diffError: result.failed, diff: null, diffPath: undefined });
+						return;
+					}
+					patch({ diffPhase: 'ready', diffPath: path, diff: result.value, diffError: null });
+				},
+
+				/** Silent re-read for the auto-refresh tick. */
+				refresh: function (sessionId) {
+					return controller.load(sessionId, { silent: true });
+				},
+
+				reset: function () {
+					generation += 1;
+					detailGeneration += 1;
+					diffGeneration += 1;
+					epoch += 1;
+					state = Object.assign(turnsState(), {});
+					emit();
+				},
+			};
+			return controller;
+		}
+
+		function TURN_LIST_URL(sessionId) {
+			return TURNS_URL + '?sessionId=' + encodeURIComponent(sessionId);
+		}
+
+		function TURN_DETAIL_URL(sessionId, turn) {
+			return TURN_URL + '?sessionId=' + encodeURIComponent(sessionId) + '&turn=' + encodeURIComponent(String(turn));
+		}
+
+		/** One block of the right column: a label, then pre-wrapped text. */
+		function saidBlock(label, said, emptyCopy, truncCopy, format) {
+			if (said === null || said === undefined) {
+				return h('div', { className: 'dshdv-tvSaidBlock' },
+					h('p', { className: 'dshdv-tvLabel' }, label),
+					h('p', { className: 'dshdv-tvEmpty' }, emptyCopy));
+			}
+			return h('div', { className: 'dshdv-tvSaidBlock' },
+				h('p', { className: 'dshdv-tvLabel' }, label, said.human === false ? h('span', { className: 'dshdv-tvTag' }, said.source) : null),
+				h('p', { className: 'dshdv-tvText', 'data-said': label }, said.text),
+				said.truncated === true
+					? h('p', { className: 'dshdv-tvNote' }, format(truncCopy, { count: String(said.text.length) }))
+					: null);
+		}
+
+		/** The per-turn browser: turns on the left, that turn's work on the right. */
+		function TurnsView(props) {
+			var controller = props.controller;
+			var sessionId = props.sessionId;
+			var t = props.t;
+			var state = React.useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
+			var wrapState = React.useState(function () { return readPreference(WRAP_KEY, 'wrap') !== 'nowrap'; });
+			var wrap = wrapState[0];
+			/* The bottom pane is a reading pane, not the diff tab: it follows the wrap
+			 * preference and stays unified, because a side-by-side split in a third of
+			 * the width is narrower than the code it is trying to show. */
+			var split = false;
+			var tickState = React.useState(0);
+			var tick = tickState[0];
+			var setTick = tickState[1];
+			var activeUntil = React.useRef(0);
+			var markActive = function () { activeUntil.current = Date.now() + TURNS_ACTIVE_MS; };
+
+			React.useEffect(function () {
+				void controller.load(sessionId);
+				return function () { controller.reset(); };
+			}, [controller, sessionId]);
+
+			React.useEffect(function () { markActive(); }, [state.phase, state.selected, state.detailPhase]);
+
+			React.useEffect(function () {
+				/* Self-scheduling like the diff view's tick: a refresh that found
+				 * nothing new changes no state, so the loop cannot depend on one. */
+				var timer = window.setTimeout(function () {
+					void controller.refresh(sessionId).then(function () {
+						setTick(function (value) { return value + 1; });
+					});
+				}, Date.now() < activeUntil.current ? TURNS_REFRESH_MS : TURNS_REFRESH_IDLE_MS);
+				return function () { window.clearTimeout(timer); };
+			}, [controller, sessionId, tick]);
+
+			var rows = state.turns;
+			var selectedRow = state.selected === null ? undefined : rows.find(function (row) { return row.turn === state.selected; });
+
+			var listBody;
+			if (state.phase === 'loading') {
+				listBody = h('div', { className: 'dshdv-status' }, h('p', null, t('turns.list.loading')));
+			} else if (state.phase === 'error') {
+				listBody = h('div', { className: 'dshdv-status' },
+					h('p', null, t(state.error === null ? 'error.generic' : state.error)),
+					h('button', { type: 'button', className: 'dshdv-btn', onClick: function () { void controller.load(sessionId); } }, t('turns.retry')));
+			} else if (rows.length === 0) {
+				listBody = h('div', { className: 'dshdv-status' }, h('p', null, t('turns.list.empty')));
+			} else {
+				listBody = rows.map(function (row) {
+					return h('button', {
+						key: row.turn,
+						type: 'button',
+						role: 'option',
+						className: 'dshdv-tvRow',
+						'data-turn': String(row.turn),
+						'aria-selected': row.turn === state.selected,
+						title: row.prompt === null ? '' : row.prompt.text,
+						onClick: function () {
+							markActive();
+							void controller.selectTurn(sessionId, row.turn);
+						},
+					},
+						h('span', { className: 'dshdv-tvRowTurn' }, format(t('turns.turn'), { turn: String(row.turn) })),
+						row.open === true ? h('span', { className: 'dshdv-tvTag' }, t('turns.open')) : null,
+						h('span', { className: 'dshdv-tvRowCounts' },
+							row.files === 0 ? null : h('span', null, String(row.files)),
+							row.added > 0 ? h('span', { className: 'dshdv-add' }, '+' + row.added) : null,
+							row.deleted > 0 ? h('span', { className: 'dshdv-del' }, '−' + row.deleted) : null));
+				});
+			}
+
+			/* The right column: what was said, then what it changed. */
+			var said;
+			if (state.phase === 'error') {
+				said = null;
+			} else if (state.selected === null) {
+				said = h('div', { className: 'dshdv-tvSaid' }, h('div', { className: 'dshdv-status' }, h('p', null, t('turns.list.empty'))));
+			} else {
+				said = h('div', { className: 'dshdv-tvSaid', 'data-dsh-diff-said': '' },
+					saidBlock(t('turns.ask'), state.prompt, t('turns.noAsk'), t('turns.truncated'), format),
+					saidBlock(t('turns.answer'), state.answer, t('turns.noAnswer'), t('turns.truncated'), format));
+			}
+
+			var filesBody;
+			if (state.selected === null) {
+				filesBody = null;
+			} else if (state.detailPhase === 'loading') {
+				filesBody = h('div', { className: 'dshdv-status' }, h('p', null, t('turns.detail.loading')));
+			} else if (state.detailPhase === 'error') {
+				filesBody = h('div', { className: 'dshdv-status' },
+					h('p', null, t(state.detailError === null ? 'error.generic' : state.detailError)),
+					h('button', { type: 'button', className: 'dshdv-btn', onClick: function () { void controller.selectTurn(sessionId, state.selected); } }, t('turns.retry')));
+			} else if (state.files.length === 0) {
+				filesBody = h('div', { className: 'dshdv-status' }, h('p', null, t('turns.noFiles')));
+			} else {
+				filesBody = h('div', { className: 'dshdv-tvFilesBody' },
+					h('div', { className: 'dshdv-tvFileList', role: 'listbox', 'aria-label': t('turns.files'), 'data-dsh-diff-turn-files': '' },
+						state.files.map(function (file) {
+							var parts = splitPath(file.display || file.path);
+							var letter = STATUS_LETTER[file.status] === undefined ? 'M' : STATUS_LETTER[file.status];
+							return h('button', {
+								key: file.path,
+								type: 'button',
+								role: 'option',
+								className: 'dshdv-tvFile',
+								'data-path': file.path,
+								'aria-selected': file.path === state.file,
+								title: file.path,
+								onClick: function () {
+									markActive();
+									void controller.selectFile(sessionId, file.path);
+								},
+							},
+								h('span', { className: 'dshdv-chip', 'data-status': file.status, 'aria-hidden': 'true' }, letter),
+								h('span', { className: 'dshdv-names' },
+									h('span', { className: 'dshdv-name' }, parts.name),
+									parts.dir === '' ? null : h('span', { className: 'dshdv-dirName' }, parts.dir)),
+								h('span', { className: 'dshdv-counts' },
+									file.added > 0 ? h('span', { className: 'dshdv-add' }, '+' + file.added) : null,
+									file.deleted > 0 ? h('span', { className: 'dshdv-del' }, '−' + file.deleted) : null));
+						})),
+					h('div', { className: 'dshdv-tvDiff' }, h(DiffBody, {
+						state: state,
+						t: t,
+						wrap: wrap,
+						split: split,
+						onRetry: function () { void controller.selectFile(sessionId, state.file); },
+					})));
+			}
+
+			var head = h('div', { className: 'dshdv-tvFilesHead' },
+				h('span', { className: 'dshdv-tvLabel' }, t('turns.files')),
+				h('span', { className: 'dshdv-summary' },
+					format(t('turns.fileCount'), { count: String(state.files.length) }),
+					state.added > 0 ? h('span', { className: 'dshdv-add' }, '+' + state.added) : null,
+					state.deleted > 0 ? h('span', { className: 'dshdv-del' }, '−' + state.deleted) : null),
+				selectedRow !== undefined && selectedRow.open === true ? h('span', { className: 'dshdv-tvTag' }, t('turns.open')) : null);
+
+			return h('div', { className: 'dshdv-root', 'data-dsh-diff-turns': '' },
+				h('div', { className: 'dshdv-tv' },
+					h('div', { className: 'dshdv-tvList' },
+						h('div', { className: 'dshdv-tvListBody', role: 'listbox', 'aria-label': t('turns.label.turn') }, listBody)),
+					h('div', { className: 'dshdv-tvMain' },
+						said,
+						h('div', { className: 'dshdv-tvFiles' }, head, filesBody))));
 		}
 
 		/* ------------------------------------------------------------------ *
@@ -1811,6 +2268,7 @@ window.__ModuleLoader__.load({
 			ensureStyles();
 			var t = createTranslator(ctx);
 			var controllers = new Map();
+			var turnControllers = new Map();
 
 			/**
 			 * One controller per Session, so switching Sessions keeps each one's
@@ -1821,6 +2279,15 @@ window.__ModuleLoader__.load({
 				if (existing !== undefined) return existing;
 				var created = createController();
 				controllers.set(sessionId, created);
+				return created;
+			}
+
+			/** The same, for the per-turn browser. */
+			function turnsFor(sessionId) {
+				var existing = turnControllers.get(sessionId);
+				if (existing !== undefined) return existing;
+				var created = createTurnsController(t);
+				turnControllers.set(sessionId, created);
 				return created;
 			}
 
@@ -1847,8 +2314,31 @@ window.__ModuleLoader__.load({
 			}, NAMESPACE + ': view tab');
 
 			ctx.effect(function () {
+				try {
+					return ctx.slots.inject('conversation.view', function () {
+						return ctx.slots.register({
+							name: 'conversation.view',
+							id: TURNS_ID,
+							/* Right after the changes tab: the same Session, read as
+							 * a conversation instead of as a tree. */
+							order: 21,
+							locale: NAMESPACE,
+							label: function () { return t('turns.label'); },
+							inject: function (sessionId) {
+								return { controller: turnsFor(sessionId) };
+							},
+						}, TurnsView);
+					});
+				} catch (error) {
+					console.error('[dsh-diff-view] failed to register the turn view:', error);
+					return undefined;
+				}
+			}, NAMESPACE + ': turn tab');
+
+			ctx.effect(function () {
 				return function () {
 					controllers.clear();
+					turnControllers.clear();
 				};
 			}, NAMESPACE + ': controllers');
 		}

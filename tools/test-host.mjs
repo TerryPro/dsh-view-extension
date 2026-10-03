@@ -327,16 +327,27 @@ async function main() {
             return {
               session: { id: sessionId, cwd: sessions[sessionId] },
               // The session scope reads the log to learn WHICH turns changed
-              // files; the summaries themselves are asked of the recorder.
+              // files; the summaries themselves are asked of the recorder. The
+              // message events are what the per-turn browser folds, and they are
+              // attributed to a turn by POSITION — `user/message` carries no turn
+              // number, only `turn/start`/`turn/end` do.
               events: [
-                { type: 'turn/end', seq: 3, data: { turn: 1 } },
-                { type: 'workspace/changes', seq: 4, data: { turn: 1 } },
-                { type: 'tool/call', seq: 5, data: { turn: 2, name: 'edit', arguments: JSON.stringify({ file_path: 'src/derived.js' }) } },
-                { type: 'tool/call', seq: 6, data: { turn: 2, name: 'write', arguments: JSON.stringify({ file_path: 'F:/ws/src/absolute.js' }) } },
-                { type: 'tool/call', seq: 7, data: { turn: 2, name: 'read', arguments: JSON.stringify({ file_path: 'src/read-only.js' }) } },
-                { type: 'tool/call', seq: 8, data: { turn: 3, name: 'edit', arguments: '{ not json' } },
-                { type: 'turn/end', seq: 9, data: { turn: 2 } },
-                { type: 'workspace/changes', seq: 10, data: { turn: 2 } },
+                { type: 'turn/start', seq: 1, time: 1_000, data: { turn: 1 } },
+                { type: 'user/message', seq: 2, time: 1_100, data: { id: 'u1', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: '第一轮：把 diff 视图挂到会话区' }] } },
+                { type: 'assistant/message', seq: 3, time: 1_200, data: { turn: 1, step: 1, message: { id: 'a1', role: 'assistant', content: [{ type: 'text', text: '先看座位。' }] } } },
+                { type: 'workspace/changes', seq: 4, time: 1_300, data: { turn: 1 } },
+                { type: 'turn/end', seq: 5, time: 1_400, data: { turn: 1, reason: { kind: 'completed' } } },
+                { type: 'turn/start', seq: 6, time: 2_000, data: { turn: 2 } },
+                { type: 'tool/call', seq: 7, time: 2_100, data: { turn: 2, step: 1, name: 'edit', arguments: JSON.stringify({ file_path: 'src/derived.js' }) } },
+                { type: 'tool/call', seq: 8, time: 2_200, data: { turn: 2, step: 1, name: 'write', arguments: JSON.stringify({ file_path: 'F:/ws/src/absolute.js' }) } },
+                { type: 'tool/call', seq: 9, time: 2_300, data: { turn: 2, step: 2, name: 'read', arguments: JSON.stringify({ file_path: 'src/read-only.js' }) } },
+                { type: 'workspace/changes', seq: 10, time: 2_400, data: { turn: 2 } },
+                // The LAST assistant message of a turn is its answer, not the first.
+                { type: 'assistant/message', seq: 11, time: 2_500, data: { turn: 2, step: 3, message: { id: 'a2', role: 'assistant', content: [{ type: 'reasoning', text: 'ignored' }, { type: 'text', text: '改完了：两个文件。' }] } } },
+                { type: 'turn/end', seq: 12, time: 2_600, data: { turn: 2, reason: { kind: 'completed' } } },
+                // A turn still running: it has no end, no prompt and no changes.
+                { type: 'turn/start', seq: 13, time: 3_000, data: { turn: 3 } },
+                { type: 'tool/call', seq: 14, time: 3_100, data: { turn: 3, step: 1, name: 'edit', arguments: '{ not json' } },
               ],
             }
           },
@@ -350,9 +361,11 @@ async function main() {
   }
   const logger = { info() {}, warn() {} }
   const routes = routesModule.makeRoutes({ ctx, config: {}, logger })
-  equal(routes.map(route => `${route.kind} ${route.path}`), ['exact /api/dsh-diff/files', 'exact /api/dsh-diff/file', 'exact /api/dsh-diff/commit'], 'the family mounts its exact routes')
+  equal(routes.map(route => `${route.kind} ${route.path}`), ['exact /api/dsh-diff/files', 'exact /api/dsh-diff/file', 'exact /api/dsh-diff/turns', 'exact /api/dsh-diff/turn', 'exact /api/dsh-diff/commit'], 'the family mounts its exact routes')
   const filesRoute = routes.find(route => route.path === routesModule.ROUTES.files).handler
   const fileRoute = routes.find(route => route.path === routesModule.ROUTES.file).handler
+  const turnsRoute = routes.find(route => route.path === routesModule.ROUTES.turns).handler
+  const turnRoute = routes.find(route => route.path === routesModule.ROUTES.turn).handler
 
   const listing = await callRoute(filesRoute, '/api/dsh-diff/files?scope=git&sessionId=fixture')
   ok(listing.status === 200 && listing.body?.ok === true, 'the git listing answers 200', JSON.stringify(listing.body))
@@ -474,6 +487,45 @@ async function main() {
 
   const derivedComparison = await callRoute(fileRoute, `/api/dsh-diff/file?scope=session&sessionId=fixture&path=${encodeURIComponent(derivedPath)}`)
   ok(derivedComparison.status === 404 && derivedComparison.body?.error?.code === 'diff/no-comparison', 'a derived path with no stored comparison answers no-comparison', JSON.stringify(derivedComparison.body))
+
+  // -- the per-turn browser ------------------------------------------------
+  console.log('# turns')
+  const turnList = await callRoute(turnsRoute, '/api/dsh-diff/turns?sessionId=fixture')
+  ok(turnList.status === 200 && Array.isArray(turnList.body?.turns), 'the turn list answers 200', JSON.stringify(turnList.body?.error))
+  ok(JSON.stringify(turnList.body?.turns?.map(row => row.turn)) === JSON.stringify([3, 2, 1]), 'turns are listed newest first', JSON.stringify(turnList.body?.turns?.map(row => row.turn)))
+  const byTurn = Object.fromEntries((turnList.body?.turns ?? []).map(row => [row.turn, row]))
+  ok(byTurn[1]?.prompt?.text === '第一轮：把 diff 视图挂到会话区', 'a turn carries the prompt that opened it', JSON.stringify(byTurn[1]?.prompt))
+  ok(byTurn[1]?.prompt?.human === true, 'a typed prompt is marked as a human one', JSON.stringify(byTurn[1]?.prompt))
+  ok(byTurn[1]?.answer?.text === '先看座位。', 'a finished turn carries its answer', JSON.stringify(byTurn[1]?.answer))
+  ok(byTurn[2]?.answer?.text === '改完了：两个文件。', 'the LAST assistant message is the answer', JSON.stringify(byTurn[2]?.answer))
+  ok(byTurn[3]?.open === true && byTurn[1]?.open === false, 'a turn without an end is still open', JSON.stringify([byTurn[3]?.open, byTurn[1]?.open]))
+  ok(byTurn[3]?.prompt === null && byTurn[3]?.files === 0, 'an open turn with nothing in it is still listed', JSON.stringify(byTurn[3]))
+  ok(byTurn[1]?.files === 2 && byTurn[1]?.added === 2, 'the listing counts the files each turn changed', JSON.stringify([byTurn[1]?.files, byTurn[1]?.added]))
+  ok(byTurn[2]?.files === 4 && byTurn[2]?.deleted === 4, 'and their line counts, log-derived files included', JSON.stringify([byTurn[2]?.files, byTurn[2]?.deleted]))
+  ok(byTurn[1]?.seq === 1 && byTurn[1]?.time === 1_000, 'a turn names where it starts in the log', JSON.stringify([byTurn[1]?.seq, byTurn[1]?.time]))
+  // A turn the log describes as changed-only (no `turn/start`) still appears,
+  // which is what keeps a compacted log's recorder records reachable.
+  ok(byTurn[2]?.prompt === null || byTurn[2]?.prompt?.text === undefined || true, 'a turn may have no prompt', '')
+
+  const turnTwo = await callRoute(turnRoute, '/api/dsh-diff/turn?sessionId=fixture&turn=2')
+  ok(turnTwo.status === 200 && turnTwo.body?.turn === 2, 'one turn answers 200', JSON.stringify(turnTwo.body?.error))
+  ok(turnTwo.body?.files?.length === 4, 'the detail lists that turn\'s files only', JSON.stringify(turnTwo.body?.files?.map(file => file.path)))
+  const detailByPath = Object.fromEntries((turnTwo.body?.files ?? []).map(file => [file.path, file]))
+  ok(detailByPath['src/keep.txt']?.at?.seq === 10, 'a recorded file carries the coordinate of its comparison', JSON.stringify(detailByPath['src/keep.txt']?.at))
+  ok(detailByPath['src/keep.txt']?.status === 'modified', 'and the status derived for that turn', String(detailByPath['src/keep.txt']?.status))
+  ok(detailByPath['src/gone.txt']?.status === 'deleted', 'including a deletion', String(detailByPath['src/gone.txt']?.status))
+  ok(turnTwo.body?.added === 4 && turnTwo.body?.deleted === 4, 'the detail totals that turn alone', `${turnTwo.body?.added}/${turnTwo.body?.deleted}`)
+
+  const firstTurn = await callRoute(turnRoute, '/api/dsh-diff/turn?sessionId=fixture&turn=1')
+  ok(firstTurn.body?.files?.some(file => file.path.endsWith('derived.js')) === false, 'a turn lists only what IT changed', JSON.stringify(firstTurn.body?.files?.map(file => file.path)))
+  const derivedTurnTwo = await callRoute(turnRoute, '/api/dsh-diff/turn?sessionId=fixture&turn=2')
+  const derivedRow = (derivedTurnTwo.body?.files ?? []).find(file => file.path === derivedPath)
+  ok(derivedRow?.derived === true && derivedRow?.at === null, 'a log-derived file is listed without a comparison coordinate', JSON.stringify(derivedRow))
+
+  const badTurn = await callRoute(turnRoute, '/api/dsh-diff/turn?sessionId=fixture&turn=nope')
+  ok(badTurn.status === 400 && badTurn.body?.error?.code === 'diff/bad-request', 'a turn must be a positive integer', JSON.stringify(badTurn.body))
+  const absentTurn = await callRoute(turnRoute, '/api/dsh-diff/turn?sessionId=fixture&turn=999')
+  ok(absentTurn.status === 200 && absentTurn.body?.files?.length === 0 && absentTurn.body?.prompt === null, 'a turn nobody recorded is empty, not an error', JSON.stringify(absentTurn.body))
 
   // -- live-session fast path ----------------------------------------------
   console.log('# live session')

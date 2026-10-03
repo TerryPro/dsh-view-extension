@@ -562,11 +562,13 @@ try {
 }
 check('apply does not throw', applyError === null, applyError?.message)
 check('it injects the conversation view seat', injected.includes('conversation.view'), injected.join(','))
-check('it registers exactly one entry', registrations.length === 1, String(registrations.length))
-check('the seat is conversation.view', registrations[0]?.options.name === 'conversation.view', registrations[0]?.options.name)
-check('the view id is diff', registrations[0]?.options.id === 'diff', registrations[0]?.options.id)
-check('the view sorts after the shipped views', registrations[0]?.options.order > 10, String(registrations[0]?.options.order))
-check('the label is a thunk (locale-following)', typeof registrations[0]?.options.label === 'function')
+check('it registers both of its tabs', registrations.length === 2, String(registrations.length))
+check('both seats are conversation.view', registrations.every(entry => entry.options.name === 'conversation.view'), JSON.stringify(registrations.map(entry => entry.options.name)))
+check('the tabs have distinct ids', JSON.stringify(registrations.map(entry => entry.options.id)) === JSON.stringify(['diff', 'turns']), JSON.stringify(registrations.map(entry => entry.options.id)))
+check('each tab sorts after the shipped views', registrations.every(entry => entry.options.order > 10), JSON.stringify(registrations.map(entry => entry.options.order)))
+check('the turn tab follows the changes tab', registrations[1].options.order > registrations[0].options.order, JSON.stringify(registrations.map(entry => entry.options.order)))
+check('each label is a thunk (locale-following)', registrations.every(entry => typeof entry.options.label === 'function'))
+check('the labels differ', registrations[0].options.label() !== registrations[1].options.label(), `${registrations[0].options.label()} / ${registrations[1].options.label()}`)
 check('the dictionaries register under the plugin namespace', localeRegistered?.namespace === 'dsh-diff-view', localeRegistered?.namespace)
 check('the dictionaries carry both locales', localeRegistered?.dictionaries?.zh !== undefined && localeRegistered?.dictionaries?.en !== undefined)
 check('exactly one stylesheet is appended', styleNodes.length === 1, String(styleNodes.length))
@@ -747,6 +749,23 @@ const viewProps = {
       'error.retry': '重试',
       'error.generic': '读取失败',
       'notice.notRepo': '不是 git 仓库',
+      'turns.label': '逐轮',
+      'turns.ask': '提问',
+      'turns.answer': '最终应答',
+      'turns.noAsk': '这一轮没有记录到提问',
+      'turns.noAnswer': '这一轮还没有应答',
+      'turns.truncated': '内容较长，此处只显示前 {count} 字',
+      'turns.list.loading': '正在读取轮次…',
+      'turns.list.empty': '这个会话还没有轮次记录',
+      'turns.turn': '第 {turn} 轮',
+      'turns.open': '进行中',
+      'turns.files': '本轮改动',
+      'turns.fileCount': '{count} 个文件',
+      'turns.noFiles': '这一轮没有改动文件',
+      'turns.detail.loading': '正在读取这一轮…',
+      'turns.label.turn': '轮次',
+      'turns.retry': '重试',
+      'diff.norecord': '这一轮没有留下对比记录',
     }
     let text = copies[key] ?? key
     for (const [name, value] of Object.entries(values ?? {})) text = text.replace(`{${name}}`, String(value))
@@ -1079,7 +1098,6 @@ tree = await render(viewElement())
 check('a remount disarms it', commitButton().props['data-dsh-diff-commit'] === 'idle', String(commitButton().props['data-dsh-diff-commit']))
 
 console.log('\nunavailable and failed states')
-seedRoutes()
 responses.delete(FILE_KEEP)
 storage.set('dsh-diff-view.scope', 'git')
 unmount.disposeControllers = true
@@ -1122,6 +1140,112 @@ sessionSwitch.props.onClick()
 tree = await rerender(viewElement())
 check('a session with no recorded change says so', findAll(tree, node => node.props !== undefined && node.props['data-dsh-diff-notice'] !== undefined).length === 1, textOf(tree))
 check('the notice names the session scope', textOf(tree).includes('notice.noSession'), textOf(tree))
+
+console.log('\nthe per-turn browser')
+const TurnsView = registrations[1].component
+const turnFace = registrations[1].options.inject('sess-1')
+const TURNS_LIST = '/api/dsh-diff/turns?sessionId=sess-1'
+const TURN_DETAIL = turn => `/api/dsh-diff/turn?sessionId=sess-1&turn=${turn}`
+const TURN_FILE = '/api/dsh-diff/file?scope=session&sessionId=sess-1&path=src%2Fkeep.txt&at=2%3A9%3A0'
+const TURN_FILE_ONE = '/api/dsh-diff/file?scope=session&sessionId=sess-1&path=src%2Fearly.txt&at=1%3A4%3A1'
+
+const turnListResponse = {
+  ok: true,
+  cwd: 'F:/ws',
+  turns: [
+    { turn: 3, open: true, seq: 13, time: 3000, prompt: null, answer: null, files: 0, added: 0, deleted: 0 },
+    { turn: 2, open: false, seq: 6, time: 2000, prompt: { text: '第二轮：把状态也算出来', truncated: false, human: true }, answer: { text: '改完了：两个文件。', truncated: false }, files: 3, added: 4, deleted: 4 },
+    { turn: 1, open: false, seq: 1, time: 1000, prompt: { text: '第一轮'.repeat(60), truncated: true, human: true }, answer: { text: '先看座位。', truncated: false }, files: 2, added: 2, deleted: 0 },
+  ],
+}
+
+/** One turn's detail, shaped the way the route serves it. */
+function turnDetail(turn, files, prompt, answer, extra = {}) {
+  return Object.assign({
+    ok: true,
+    cwd: 'F:/ws',
+    turn,
+    open: false,
+    prompt,
+    answer,
+    files,
+    added: files.reduce((sum, file) => sum + file.added, 0),
+    deleted: files.reduce((sum, file) => sum + file.deleted, 0),
+  }, extra)
+}
+
+responses = new Map([
+  [TURNS_LIST, turnListResponse],
+  [TURN_DETAIL(2), turnDetail(2, [
+    { path: 'src/keep.txt', display: 'src/keep.txt', status: 'modified', added: 4, deleted: 1, at: { turn: 2, seq: 9, index: 0 } },
+    { path: 'src/gone.txt', display: 'src/gone.txt', status: 'deleted', added: 0, deleted: 3, at: { turn: 2, seq: 9, index: 1 } },
+    { path: 'F:/ws/src/absolute.js', display: 'F:/ws/src/absolute.js', status: 'added', added: 0, deleted: 0, at: null, derived: true },
+  ], { text: '第二轮：把状态也算出来', truncated: false, human: true }, { text: '改完了：两个文件。', truncated: false })],
+  [TURN_DETAIL(1), turnDetail(1, [
+    { path: 'src/early.txt', display: 'src/early.txt', status: 'added', added: 2, deleted: 0, at: { turn: 1, seq: 4, index: 1 } },
+  ], { text: '第一轮'.repeat(60), truncated: true, human: true }, { text: '先看座位。', truncated: false })],
+  [TURN_DETAIL(3), turnDetail(3, [], null, null, { open: true })],
+  [TURN_FILE, { ok: true, scope: 'session', path: 'src/keep.txt', kind: 'text', before: true, after: true, coarse: false, hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 2, lines: [' first', '+turn-two'] }] }],
+  [TURN_FILE_ONE, { ok: true, scope: 'session', path: 'src/early.txt', kind: 'text', before: false, after: true, coarse: false, hunks: [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 2, lines: ['+early', '+file'] }] }],
+])
+requests.length = 0
+unmount.disposeControllers = true
+unmount()
+let turnTree = await render(React.createElement(TurnsView, Object.assign({}, viewProps, turnFace)))
+/** The turn rows currently rendered. */
+const turnRows = () => findAll(turnTree, node => node.type === 'button' && node.props !== undefined && node.props['data-turn'] !== undefined)
+/** The file rows of the turn in view. */
+const turnFileRows = () => findAll(turnTree, node => node.type === 'button' && node.props !== undefined && node.props['data-path'] !== undefined)
+
+check('the turn browser reads its own route', requests.some(entry => entry.url === TURNS_LIST), JSON.stringify(requests.map(entry => entry.url)))
+check('it lists one row per turn', turnRows().length === 3, JSON.stringify(turnRows().map(row => row.props['data-turn'])))
+check('rows are newest first', JSON.stringify(turnRows().map(row => row.props['data-turn'])) === JSON.stringify(['3', '2', '1']), JSON.stringify(turnRows().map(row => row.props['data-turn'])))
+check('a running turn is marked', textOf(turnRows()[0]).includes('进行中'), textOf(turnRows()[0]))
+check('a row carries the turn\'s own counts', textOf(turnRows()[1]).includes('3') && textOf(turnRows()[1]).includes('+4'), textOf(turnRows()[1]))
+check('a turn with no changes shows none', textOf(turnRows()[0]).includes('+') === false, textOf(turnRows()[0]))
+check('the newest turn starts selected', turnRows()[0].props['aria-selected'] === true, JSON.stringify(turnRows().map(row => row.props['aria-selected'])))
+check('selecting reads that turn', requests.some(entry => entry.url === TURN_DETAIL(3)), JSON.stringify(requests.map(entry => entry.url)))
+check('an open turn with no changes says so', textOf(turnTree).includes('这一轮没有改动文件'), textOf(turnTree))
+check('an open turn with no prompt says so', textOf(turnTree).includes('这一轮没有记录到提问'), textOf(turnTree))
+
+// Turn 2: question above, answer below it, changed files underneath.
+turnRows()[1].props.onClick()
+await settle(4)
+turnTree = await rerender(React.createElement(TurnsView, Object.assign({}, viewProps, turnFace)))
+check('choosing a turn reads its detail', requests.some(entry => entry.url === TURN_DETAIL(2)), JSON.stringify(requests.map(entry => entry.url)))
+check('the detail shows the question', textOf(turnTree).includes('第二轮：把状态也算出来'), textOf(turnTree))
+check('and the answer', textOf(turnTree).includes('改完了：两个文件。'), textOf(turnTree))
+check('the two blocks are labelled', textOf(turnTree).includes('提问') && textOf(turnTree).includes('最终应答'), textOf(turnTree))
+check('the changed files are listed', turnFileRows().length === 3, JSON.stringify(turnFileRows().map(row => row.props['data-path'])))
+check('the first file of the turn is selected', turnFileRows()[0].props['aria-selected'] === true, JSON.stringify(turnFileRows().map(row => row.props['aria-selected'])))
+check('its comparison is read at that turn\'s coordinate', requests.some(entry => entry.url === TURN_FILE), JSON.stringify(requests.map(entry => entry.url)))
+check('the comparison is drawn', textOf(turnTree).includes('turn-two'), textOf(turnTree))
+check('a deletion is shown with its status', textOf(turnFileRows()[1]).includes('D'), textOf(turnFileRows()[1]))
+
+// A file whose turn kept no comparison says so instead of failing.
+turnFileRows()[2].props.onClick()
+await settle(4)
+turnTree = await rerender(React.createElement(TurnsView, Object.assign({}, viewProps, turnFace)))
+check('a file with no stored comparison asks for none', requests.some(entry => entry.url.includes('absolute.js')) === false, JSON.stringify(requests.map(entry => entry.url)))
+check('and says there is none', textOf(turnTree).includes('这一轮没有留下对比记录'), textOf(turnTree))
+
+// Turn 1: a long prompt is clipped, and the note says so.
+turnRows()[2].props.onClick()
+await settle(4)
+turnTree = await rerender(React.createElement(TurnsView, Object.assign({}, viewProps, turnFace)))
+check('a truncated text is noted', textOf(turnTree).includes('内容较长'), textOf(turnTree))
+check('the truncated prompt is shown as far as it goes', textOf(turnTree).includes('第一轮'), textOf(turnTree))
+check('that turn\'s own file is listed', turnFileRows().length === 1 && turnFileRows()[0].props['data-path'] === 'src/early.txt', JSON.stringify(turnFileRows().map(row => row.props['data-path'])))
+check('and read at its own turn', requests.some(entry => entry.url === TURN_FILE_ONE), JSON.stringify(requests.map(entry => entry.url)))
+check('an addition-only comparison shows its note', textOf(turnTree).includes('+ early') || textOf(turnTree).includes('+early'), textOf(turnTree))
+
+// A failed turn list is the list's own state, with a way back.
+unmount()
+responses = new Map()
+turnTree = await render(React.createElement(TurnsView, Object.assign({}, viewProps, turnFace)))
+check('a failed turn list explains itself', textOf(turnTree).includes('读取失败'), textOf(turnTree))
+check('and offers a retry', textOf(turnTree).includes('重试'), textOf(turnTree))
+check('with no rows to mislead', turnRows().length === 0, JSON.stringify(turnRows().length))
 
 console.log('\nunmount')
 unmount()
