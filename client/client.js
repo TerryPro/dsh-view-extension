@@ -678,7 +678,7 @@ window.__ModuleLoader__.load({
 			/* The tree's width is the reader's to set, and it lives in a custom property
 			 * on the view — so a drag writes one variable per pointer move and React
 			 * renders nothing until the gesture ends. */
-			'.dshdv-fvTree{display:flex;flex-direction:column;flex:0 0 auto;width:var(--dshdv-tree-w,236px);min-width:0;min-height:0}',
+			'.dshdv-fvTree{display:flex;flex-direction:column;flex:0 0 auto;width:var(--dshdv-tree-w,236px);min-width:0;min-height:0;background:var(--dsw-alias-bg-layer-1,#fafbfc)}',
 			/* The tree header and rows are the shell's files-panel geometry, number
 			 * for number (`ui-sidebar-files` FilesBody.module.css): a 38px header row
 			 * with a hairline underneath, 18px of indent per level, rows that abut so
@@ -779,8 +779,8 @@ window.__ModuleLoader__.load({
 			/* A divider: 5px of hit area over a hairline, in the shell\'s separator ink.
 			 * Neither pane may shrink past its own scroll, hence the clamps in the
 			 * drag handler rather than here. */
-			'.dshdv-grip{flex:0 0 5px;align-self:stretch;border:0;padding:0;background:transparent;position:relative;z-index:4}',
-			'.dshdv-grip::after{content:"";position:absolute;background:transparent;transition:background .12s ease}',
+			'.dshdv-grip{flex:0 0 5px;align-self:stretch;border:0;padding:0;background:var(--dsw-alias-bg-layer-1,#fafbfc);position:relative;z-index:4}',
+			'.dshdv-grip::after{content:"";position:absolute;background:var(--dsw-alias-border-l3,rgba(0,0,0,.08));transition:background .12s ease}',
 			'.dshdv-gripV{cursor:col-resize}',
 			'.dshdv-gripV::after{top:0;bottom:0;left:2px;width:1px}',
 			'.dshdv-gripH{cursor:row-resize}',

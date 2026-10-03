@@ -2259,11 +2259,15 @@ for (const selector of ['.dshdv-gitLeft', '.dshdv-gitHistory', '.dshdv-gitFiles'
   const rule = new RegExp(`^${selector.replace(/[.[\]$^*+?(){}|\\]/gu, '\\$&')}\\{([^}]*)\\}`, 'mu').exec(styles)?.[1] ?? ''
   check(`no border of its own: ${selector}`, !/border-(right|bottom|top|left):/u.test(rule), rule)
 }
-/* The divider is felt, not seen: no line at rest, and a line the moment a pointer is
- * over it or a drag is running. Both halves are asserted — an invisible handle with
- * no reveal is a handle nobody can find. */
+/* The seam is marked at rest, and the handle brightens when used. The lane that
+ * carries it must be painted like the pane beside it: an unpainted lane showed the
+ * surface underneath as a white stripe between the tree and the editor. */
 const gripBase = /^\.dshdv-grip::after\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
-check('the divider draws no line at rest', gripBase.includes('background:transparent'), gripBase)
+check('a line marks the seam at rest', gripBase.includes('background:var(--dsw-alias-border-l3'), gripBase)
+const gripLane = /^\.dshdv-grip\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
+check('the handle lane is painted, not left transparent', gripLane.includes('background:var(--dsw-alias-bg-layer-1'), gripLane)
+const fvTreeBg = /^\.dshdv-fvTree\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
+check('and the tree joins that surface, so no stripe shows between them', fvTreeBg.includes('background:var(--dsw-alias-bg-layer-1'), fvTreeBg)
 const gripReveal = /^\.dshdv-grip:hover::after,\.dshdv-grip:focus-visible::after\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
 check('hovering it reveals the line', gripReveal.includes('background:var('), gripReveal)
 const gripDrag = /^\.dshdv-grip\[data-dragging="true"\]::after\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
