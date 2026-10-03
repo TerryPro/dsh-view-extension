@@ -780,7 +780,7 @@ window.__ModuleLoader__.load({
 			 * Neither pane may shrink past its own scroll, hence the clamps in the
 			 * drag handler rather than here. */
 			'.dshdv-grip{flex:0 0 5px;align-self:stretch;border:0;padding:0;background:transparent;position:relative;z-index:4}',
-			'.dshdv-grip::after{content:"";position:absolute;background:var(--dsw-alias-border-l3,rgba(0,0,0,.08));transition:background .12s ease}',
+			'.dshdv-grip::after{content:"";position:absolute;background:transparent;transition:background .12s ease}',
 			'.dshdv-gripV{cursor:col-resize}',
 			'.dshdv-gripV::after{top:0;bottom:0;left:2px;width:1px}',
 			'.dshdv-gripH{cursor:row-resize}',

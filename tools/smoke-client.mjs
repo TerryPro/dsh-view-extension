@@ -2259,7 +2259,16 @@ for (const selector of ['.dshdv-gitLeft', '.dshdv-gitHistory', '.dshdv-gitFiles'
   const rule = new RegExp(`^${selector.replace(/[.[\]$^*+?(){}|\\]/gu, '\\$&')}\\{([^}]*)\\}`, 'mu').exec(styles)?.[1] ?? ''
   check(`no border of its own: ${selector}`, !/border-(right|bottom|top|left):/u.test(rule), rule)
 }
-check('and the divider is what draws it', String(/^\.dshdv-grip::after\{([^}]*)\}/mu.exec(styles)?.[1]).includes('background:'), /^\.dshdv-grip::after\{([^}]*)\}/mu.exec(styles)?.[1])
+/* The divider is felt, not seen: no line at rest, and a line the moment a pointer is
+ * over it or a drag is running. Both halves are asserted — an invisible handle with
+ * no reveal is a handle nobody can find. */
+const gripBase = /^\.dshdv-grip::after\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
+check('the divider draws no line at rest', gripBase.includes('background:transparent'), gripBase)
+const gripReveal = /^\.dshdv-grip:hover::after,\.dshdv-grip:focus-visible::after\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
+check('hovering it reveals the line', gripReveal.includes('background:var('), gripReveal)
+const gripDrag = /^\.dshdv-grip\[data-dragging="true"\]::after\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
+check('and a running drag keeps it visible', gripDrag.includes('background:var('), gripDrag)
+check('the handle still occupies its lane', /^\.dshdv-gripV\{([^}]*)\}/mu.exec(styles)?.[1]?.includes('cursor:col-resize') === true, /^\.dshdv-gripV\{([^}]*)\}/mu.exec(styles)?.[1])
 console.log('\nunmount')
 unmount()
 const cleanups = []
