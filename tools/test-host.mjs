@@ -772,13 +772,14 @@ async function main() {
   const committed = await callRoute(commitRoute, '/api/dsh-diff/commit', { method: 'POST', body: JSON.stringify({ sessionId: 'fixture', turn: 7 }) })
   ok(committed.status === 200 && committed.body?.committed === true, 'the work tree is committed', JSON.stringify(committed.body))
   ok(typeof committed.body?.revision === 'string' && committed.body.revision.length >= 7, 'the answer names the revision it created', JSON.stringify(committed.body))
-  ok(committed.body?.message === 'dsh-diff-view: checkpoint', 'the commit carries the default message', JSON.stringify(committed.body?.message))
+  ok(committed.body?.message.startsWith('dsh-diff-view: turn 7 of fixture'), 'the commit carries the rendered default message', JSON.stringify(committed.body?.message))
+  ok(committed.body?.message.includes('DSH-Turn: 7'), 'and the machine-parseable trailer', JSON.stringify(committed.body?.message))
   ok(committed.body?.repository === fixture.root.replace(/\\/gu, '/') || committed.body?.repository !== undefined, 'the answer names the repository it committed', String(committed.body?.repository))
 
   const headAfter = await git.runGit(subprocess, executable, ['rev-parse', 'HEAD'], { cwd: fixture.root, signal })
   ok(headAfter.stdout.trim() !== headBefore.stdout.trim(), 'HEAD moved', `${headBefore.stdout.trim()} -> ${headAfter.stdout.trim()}`)
   const logEntry = await git.runGit(subprocess, executable, ['--no-pager', 'log', '-1', '--pretty=%s'], { cwd: fixture.root, signal })
-  ok(logEntry.stdout.trim() === 'dsh-diff-view: checkpoint', 'the message is what the log shows', logEntry.stdout.trim())
+  ok(logEntry.stdout.trim() === 'dsh-diff-view: turn 7 of fixture', 'the message is what the log shows', logEntry.stdout.trim())
   const afterStatus = await git.runGit(subprocess, executable, ['status', '--porcelain=v2', '-z', '-uall'], { cwd: fixture.root, signal })
   ok(afterStatus.stdout === '', 'the work tree is clean afterwards', JSON.stringify(afterStatus.stdout))
   const trackedUntracked = await git.runGit(subprocess, executable, ['ls-files', '--error-unmatch', 'untracked.txt'], { cwd: fixture.root, signal })
@@ -791,9 +792,13 @@ async function main() {
   ok(headUnchanged.stdout.trim() === headAfter.stdout.trim(), 'and HEAD does not move for it', headUnchanged.stdout.trim())
 
   // The template is the profile's, and its placeholders are substituted.
-  ok(commitModule.commitMessage(undefined, { turn: 3 }) === 'dsh-diff-view: checkpoint', 'the default message stands in for a missing template')
-  ok(commitModule.commitMessage('turn {turn} of {session}', { turn: 3, session: 'abc' }) === 'turn 3 of abc', 'the template substitutes both placeholders', commitModule.commitMessage('turn {turn} of {session}', { turn: 3, session: 'abc' }))
-  ok(commitModule.commitMessage('   ', { turn: 1 }) === 'dsh-diff-view: checkpoint', 'a blank template falls back rather than committing an empty message')
+  ok(commitModule.commitMessage(undefined, { turn: 3 }) === 'dsh-diff-view: turn 3 of ?', 'the default message stands in for a missing template', commitModule.commitMessage(undefined, { turn: 3 }))
+  const withTrailer = commitModule.commitMessage('turn {turn} of {session}', { turn: 3, session: 'abc' })
+  ok(withTrailer.startsWith('turn 3 of abc'), 'the template substitutes both placeholders', withTrailer)
+  ok(withTrailer.includes('DSH-Turn: 3'), 'the trailer carries the turn number', withTrailer)
+  ok(withTrailer.includes('DSH-Session: abc'), 'the trailer carries the session id', withTrailer)
+  ok(commitModule.commitMessage(undefined, { turn: undefined, session: undefined }) === 'dsh-diff-view: turn ? of ?', 'no trailer when coordinates are unknown')
+  ok(commitModule.commitMessage('   ', { turn: 1 }) === 'dsh-diff-view: turn 1 of ?', 'a blank template falls back rather than committing an empty message', commitModule.commitMessage('   ', { turn: 1 }))
 
   // -- the automatic checkpoint --------------------------------------------
   console.log('# automatic checkpoint')
@@ -826,6 +831,53 @@ async function main() {
   ok(commits[1]?.message === 'checkpoint 9 for s-top', 'a later turn is committed too', JSON.stringify(commits[1]))
   ok(warnings.length === 1 && warnings[0].includes('git said no'), 'a refused commit is logged, not thrown', JSON.stringify(warnings))
   ok(commits.some(entry => entry.cwd === undefined) === false, 'no commit runs without a resolved directory')
+
+  // -- turn→commit mapping (parseTurnTrailers) --------------------------------
+  console.log('# parseTurnTrailers')
+  const SEP = '\u0001'
+  const trailerLog = [
+    `aaa111${SEP}aaa111${SEP}dsh-diff-view: turn 3 of sess-1\n\nDSH-Turn: 3\nDSH-Session: sess-1\n`,
+    `bbb222${SEP}bbb222${SEP}dsh-diff-view: turn 2 of sess-1\n\nDSH-Turn: 2\nDSH-Session: sess-1\n`,
+    `ccc333${SEP}ccc333${SEP}dsh-diff-view: turn 1 of sess-1\n\nDSH-Turn: 1\nDSH-Session: sess-1\n`,
+    `ddd444${SEP}ddd444${SEP}some other commit\n`,
+  ].join('\0')
+  const parsed = git.parseTurnTrailers(trailerLog)
+  ok(parsed.size === 3, 'three turns are mapped, the unrelated commit is skipped', String(parsed.size))
+  ok(parsed.get(3)?.sha === 'aaa111', 'turn 3 maps to its SHA', JSON.stringify(parsed.get(3)))
+  ok(parsed.get(2)?.short === 'bbb222', 'turn 2 maps to its short SHA', JSON.stringify(parsed.get(2)))
+  ok(parsed.get(1)?.sha === 'ccc333', 'turn 1 maps to its SHA', JSON.stringify(parsed.get(1)))
+  ok(parsed.get(4) === undefined, 'a commit without a trailer is not mapped')
+  ok(git.parseTurnTrailers('').size === 0, 'empty output yields an empty map')
+  ok(git.parseTurnTrailers('garbage').size === 0, 'unparseable output yields an empty map')
+
+  // -- git-based comparison reconstruction (end-to-end) -------------------------
+  console.log('# git fallback reconstruction')
+  /* Make a commit with a trailer so findTurnCommits can locate it, then verify
+   * that diffTurnFile reconstructs the comparison from it. */
+  await writeFile(path.join(fixture.root, 'reconstructed.txt'), 'line-one\nline-two\n')
+  await git.runGit(subprocess, executable, ['add', '--all'], { cwd: fixture.root, signal })
+  const trailerMessage = commitModule.commitMessage(undefined, { turn: 42, session: 'fixture' })
+  await git.runGit(subprocess, executable, ['commit', '--quiet', '-m', trailerMessage], { cwd: fixture.root, signal })
+  const turnCommits = await git.findTurnCommits({ root: fixture.root, git: { subprocess, executable }, sessionId: 'fixture', signal })
+  ok(turnCommits.has(42), 'findTurnCommits locates the commit by its trailer', JSON.stringify([...turnCommits.keys()]))
+  const turnSha = turnCommits.get(42)?.sha
+  ok(typeof turnSha === 'string' && turnSha.length >= 7, 'the SHA is a real object id', String(turnSha))
+
+  /* Modify the file and commit again so the first commit has a diff to show. */
+  await writeFile(path.join(fixture.root, 'reconstructed.txt'), 'line-one\nline-two\nline-three\n')
+  await git.runGit(subprocess, executable, ['add', '--all'], { cwd: fixture.root, signal })
+  await git.runGit(subprocess, executable, ['commit', '--quiet', '-m', 'second'], { cwd: fixture.root, signal })
+
+  /* diffTurnFile on the FIRST commit should show the file as all-additions. */
+  const firstDiff = await git.diffTurnFile({ root: fixture.root, git: { subprocess, executable }, sha: turnSha, path: 'reconstructed.txt', signal })
+  ok(firstDiff !== undefined, 'diffTurnFile reconstructs a comparison from the commit', typeof firstDiff)
+  ok(firstDiff?.hunks?.length > 0, 'the reconstructed comparison has hunks', JSON.stringify(firstDiff?.hunks?.length))
+  ok(firstDiff?.before === false, 'a new file has no before side', String(firstDiff?.before))
+  ok(firstDiff?.after === true, 'and it has an after side', String(firstDiff?.after))
+
+  /* A file the commit did NOT touch returns undefined. */
+  const noDiff = await git.diffTurnFile({ root: fixture.root, git: { subprocess, executable }, sha: turnSha, path: 'nonexistent.txt', signal })
+  ok(noDiff === undefined, 'a file the commit did not touch yields undefined', String(noDiff))
 
   // -- cleanup --------------------------------------------------------------
   await rm(fixture.root, { recursive: true, force: true })

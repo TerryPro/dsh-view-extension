@@ -3,6 +3,14 @@
 # The row's module name is the bare package name, which is what makes the client
 # module system attach this package's ./client bundle to it as the browser half
 # (a row mounted from a subpath export would carry no half).
+#
+# `autoCommit` checkpoints the work tree at the end of every finished top-level
+# turn (subagent turns excluded). It is what makes the per-turn view survive a
+# restart: each checkpoint carries a `DSH-Turn`/`DSH-Session` trailer, so the
+# turn's comparison can be reconstructed from git history after the Host's
+# in-memory change recorder is gone.
 - insert:
     - id: dsh-diff-view
       name: 'dsh-diff-view'
+      config:
+        autoCommit: true

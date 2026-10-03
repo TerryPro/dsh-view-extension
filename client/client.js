@@ -361,6 +361,9 @@ window.__ModuleLoader__.load({
 				'error.notRepository': '不是 git 仓库',
 				'error.noGit': '未找到 git',
 				'error.forbidden': '请求被拒绝',
+				'turns.openInGit': '在 Git 浏览中打开',
+				'turns.commitShort': '提交 {short}',
+				'diff.reconstructed': '此对比由 git 历史重建（记录器已不持有它）',
 			},
 			en: {
 				'view.label': 'Changes',
@@ -528,6 +531,9 @@ window.__ModuleLoader__.load({
 				'error.notRepository': 'Not a git repository',
 				'error.noGit': 'git not found',
 				'error.forbidden': 'The request was refused',
+				'turns.openInGit': 'Open in Git browser',
+				'turns.commitShort': 'commit {short}',
+				'diff.reconstructed': 'Reconstructed from git history (the recorder no longer holds it)',
 			},
 		};
 
@@ -926,6 +932,10 @@ window.__ModuleLoader__.load({
 			 * the shell's own trajectory ledger reserves the same band. */
 			'.dshdv-listBody,.dshdv-scroll,.dshdv-tvListBody,.dshdv-tvSaid,.dshdv-tvFileList{padding-bottom:var(--dshdv-bottom-clearance)}',
 			'.dshdv-note{padding:6px 12px;background:var(--dsw-alias-bg-layer-2,rgba(0,0,0,.03));color:var(--dsw-alias-label-secondary,#5b636e);font-size:12px;border-bottom:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.06))}',
+			'.dshdv-noteReconstructed{color:var(--dsw-alias-state-info-primary,#4a7dba);font-style:italic}',
+			'.dshdv-tvCommitLink{margin-left:auto;font-size:11px;color:var(--dsw-alias-label-tertiary,#8b939e);cursor:pointer;white-space:nowrap}',
+			'.dshdv-tvCommitLink:hover{color:var(--dsw-alias-state-business-primary,#2563eb);background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.05))}',
+			'.dshdv-tvCommitText{font-family:var(--ds-font-family-code,monospace);font-size:11px}',
 			'.dshdv-sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}',
 			'@media (max-width: 720px){.dshdv-list{flex-basis:200px}}',
 		];
@@ -1414,13 +1424,18 @@ window.__ModuleLoader__.load({
 			var url = FILE_URL + '?scope=' + encodeURIComponent(scope) + '&sessionId=' + encodeURIComponent(sessionId) + '&path=' + encodeURIComponent(path);
 			if (at === undefined || at === null) return url;
 			/* `at` means two different things, and they are not interchangeable: a
-			 * session read addresses a TURN (`turn:seq:index`), while a commit read
-			 * addresses a COMMIT and carries its id verbatim. Formatting a commit id
-			 * as a turn produced `at=<sha>:undefined:undefined` — a read that could
-			 * only fail. */
-			var coordinate = scope === 'commit'
-				? String(at)
-				: String(at.turn) + ':' + String(at.seq) + ':' + String(at.index);
+			 * session read addresses a TURN (`turn:seq:index` for the recorder, or
+			 * just `turn` for the git fallback), while a commit read addresses a
+			 * COMMIT and carries its id verbatim. */
+			var coordinate;
+			if (scope === 'commit') {
+				coordinate = String(at);
+			} else if (at.seq !== undefined && at.seq !== null && at.index !== undefined && at.index !== null) {
+				coordinate = String(at.turn) + ':' + String(at.seq) + ':' + String(at.index);
+			} else {
+				/* Turn-only: the git fallback reconstructs from the checkpoint commit. */
+				coordinate = String(at.turn);
+			}
 			return url + '&at=' + encodeURIComponent(coordinate);
 		}
 
@@ -2168,6 +2183,9 @@ window.__ModuleLoader__.load({
 				files: [],
 				added: 0,
 				deleted: 0,
+				/** The checkpoint commit for the turn in view (git persistence layer). */
+				sha: null,
+				short: null,
 				/** The file whose comparison is held, and its print. */
 				file: null,
 				filePrint: undefined,
@@ -2212,7 +2230,8 @@ window.__ModuleLoader__.load({
 			function emptyTurn() {
 				return {
 					selected: null, open: false, prompt: null, answer: null,
-					files: [], added: 0, deleted: 0, detailPhase: 'idle', detailError: null,
+					files: [], added: 0, deleted: 0, sha: null, short: null,
+					detailPhase: 'idle', detailError: null,
 					file: null, filePrint: undefined, diff: null, diffPath: undefined,
 					diffPhase: 'idle', diffError: null,
 				};
@@ -2333,6 +2352,8 @@ window.__ModuleLoader__.load({
 						files: files,
 						added: value.added || 0,
 						deleted: value.deleted || 0,
+						sha: typeof value.sha === 'string' ? value.sha : null,
+						short: typeof value.short === 'string' ? value.short : null,
 						filePrint: detailPrint(turn, files),
 						/* What the detail describes, so the next silent tick can tell
 						 * whether it still agrees with the row the reader sees. */
@@ -2644,6 +2665,7 @@ window.__ModuleLoader__.load({
 			var controller = props.controller;
 			var sessionId = props.sessionId;
 			var t = props.t;
+			var navigateToCommit = props.navigateToCommit;
 			/* This view's three seams: the turn list's width, the split between the
 			 * question and the files, and the file list against the comparison. Each is
 			 * remembered on its own, and each reads the container it divides — which is
@@ -2855,7 +2877,17 @@ window.__ModuleLoader__.load({
 					format(t('turns.fileCount'), { count: String(state.files.length) }),
 					state.added > 0 ? h('span', { className: 'dshdv-add' }, '+' + state.added) : null,
 					state.deleted > 0 ? h('span', { className: 'dshdv-del' }, '−' + state.deleted) : null),
-				selectedRow !== undefined && selectedRow.open === true ? h('span', { className: 'dshdv-tvTag' }, t('turns.open')) : null);
+				selectedRow !== undefined && selectedRow.open === true ? h('span', { className: 'dshdv-tvTag' }, t('turns.open')) : null,
+				/* The checkpoint commit link: visible only when this turn has one, so the
+				 * reader can jump to the Git browser and see the same content as a commit. */
+				state.sha !== null && navigateToCommit !== undefined
+					? h('button', {
+						type: 'button',
+						className: 'dshdv-btn dshdv-tvCommitLink',
+						title: t('turns.openInGit'),
+						onClick: function () { navigateToCommit(state.sha); },
+					}, h('span', { className: 'dshdv-tvCommitText' }, format(t('turns.commitShort'), { short: state.short || state.sha.slice(0, 7) })))
+					: null);
 
 			/* The three seams of this view, as one factory rather than three hand-written
 			 * dividers: the gesture is already a function (`dividerDrag`), and all that
@@ -3140,6 +3172,7 @@ window.__ModuleLoader__.load({
 			var body = [];
 			if (note !== null) body.push(h('p', { key: 'note', className: 'dshdv-note', 'data-diff-note': note }, t(note)));
 			if (diff.coarse === true) body.push(h('p', { key: 'coarse', className: 'dshdv-note' }, t('diff.coarse')));
+			if (diff.reconstructed === true) body.push(h('p', { key: 'reconstructed', className: 'dshdv-note dshdv-noteReconstructed' }, t('diff.reconstructed')));
 			if (budget.truncated) body.push(h('p', { key: 'cut', className: 'dshdv-note' }, format(t('diff.truncated'), { count: MAX_RENDERED_LINES })));
 			budget.hunks.forEach(function (hunk, index) {
 				body.push(props.split && !single
@@ -5395,7 +5428,30 @@ window.__ModuleLoader__.load({
 							locale: NAMESPACE,
 							label: function () { return t('turns.label'); },
 							inject: function (sessionId) {
-								return { controller: turnsFor(sessionId), tr: t };
+								return {
+									controller: turnsFor(sessionId),
+									tr: t,
+									/**
+									 * Jump to the Git browser with a commit pre-selected.
+									 *
+									 * The shell renders one conversation.view at a time, so this
+									 * pre-selects the commit in the diff controller; the reader
+									 * switches to the “变更” tab and sees it. If the shell exposes
+									 * a tab-activation API, we use it too.
+									 */
+									navigateToCommit: function (sha) {
+										var ctrl = controllerFor(sessionId);
+										void ctrl.selectCommit(sessionId, sha);
+										try {
+											if (typeof ctx.get === 'function') {
+												var views = ctx.get('conversationViews');
+												if (views !== undefined && views !== null && typeof views.activate === 'function') {
+													views.activate(VIEW_ID);
+												}
+											}
+										} catch (error) { /* tab switching is a nicety */ }
+									},
+								};
 							},
 						}, TurnsView);
 					});
