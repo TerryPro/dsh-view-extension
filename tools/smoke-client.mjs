@@ -1034,7 +1034,11 @@ check('the list request is same-origin credentialed', requests[0]?.credentials =
 check('it selected the first file automatically', requests.some(entry => entry.url === FILE_KEEP), JSON.stringify(requests.map(entry => entry.url)))
 const rows = findAll(tree, node => node.props !== undefined && node.props['data-path'] !== undefined)
 check('one row per listed file', rows.length === 3, String(rows.length))
-check('the modified file is drawn as M', rows[0]?.props?.title?.includes('修改') === true, String(rows[0]?.props?.title))
+/* The status is the LETTER on the row, and the hover carries the FULL path (which
+ * the row may have to truncate). A tooltip that repeated the status word would be
+ * a tooltip sitting on the row below — the one the reader is about to read. */
+check('the modified file is drawn as M', textOf(rows[0]).includes('M') && String(rows[0]?.props?.title).includes('src/keep.txt'), JSON.stringify({ text: textOf(rows[0]), title: rows[0]?.props?.title }))
+check('and the hover does not repeat the status word', String(rows[0]?.props?.title).includes('修改') === false, String(rows[0]?.props?.title))
 check('the untracked file is drawn as U', textOf(rows[1]).includes('U'), textOf(rows[1]))
 check('a row shows its directory and name', textOf(rows[0]).includes('keep.txt'), textOf(rows[0]))
 check('a row shows its line counts', textOf(rows[0]).includes('+3') && textOf(rows[0]).includes('−1'), textOf(rows[0]))

@@ -739,6 +739,11 @@ window.__ModuleLoader__.load({
 			 * the shell's own tree does. Rows that carry two lines of text cannot touch:
 			 * the hover and selected fills read as one continuous block otherwise. */
 			'.dshdv-gitHistory .dshdv-listBody{display:flex;flex-direction:column;gap:3px}',
+			/* The file rows of this pane are two lines tall as well (name over directory),
+			 * so they get the same air. Scoped to the pane: the file views' tree keeps the
+			 * shell tree's abutting rows. */
+			'.dshdv-gitFiles .dshdv-listBody{display:flex;flex-direction:column;gap:3px}',
+			'.dshdv-gitFiles .dshdv-row{margin:0}',
 			/* A commit row: the subject takes the room, the id and the date stay put. */
 			'.dshdv-commitRow{display:flex;flex-direction:column;gap:3px;width:100%;min-width:0;padding:6px 10px;border:0;border-radius:var(--dsw-radius-md,12px);background:transparent;text-align:left;font:inherit;color:var(--dsw-alias-label-primary,#1b1f24);cursor:pointer}',
 			'.dshdv-commitRow:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}',
@@ -2645,8 +2650,11 @@ window.__ModuleLoader__.load({
 			var file = props.file;
 			var parts = splitPath(file.display || file.path);
 			var letter = STATUS_LETTER[props.status] === undefined ? 'M' : STATUS_LETTER[props.status];
-			var title = statusLabel(props.t, props.status)
-				+ (file.originalPath === undefined ? '' : ' ← ' + file.originalPath)
+			/* What the hover adds is the FULL path and anything the row had to leave out.
+			 * It deliberately does not lead with the status word: that is already the
+			 * letter on the row, and a tooltip repeating a row's own content is a
+			 * tooltip sitting on top of the row below it. */
+			var title = (file.originalPath === undefined ? file.path : file.path + ' ← ' + file.originalPath)
 				+ (Array.isArray(file.changedTurns) && file.changedTurns.length > 0 ? '  ·  T' + file.changedTurns.join(', T') : '');
 			var path = file.path;
 			return h('button', {

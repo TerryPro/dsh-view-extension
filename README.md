@@ -439,7 +439,7 @@ dsh plugin add link:F:/deepseek_harness_workspace/dsh-diff-view
 
 ```bash
 node tools/test-host.mjs      # 176 项：解析器对真实 git 输出、路由行为、会话折叠与兜底、围栏
-node tools/smoke-client.mjs   # 311 项：契约、注册、渲染、交互、失败态
+node tools/smoke-client.mjs   # 312 项：契约、注册、渲染、交互、失败态
 npm test                      # 两个都跑
 ```
 
