@@ -320,6 +320,20 @@ check('the ghosted textarea keeps a visible caret', ...)   // 字形透明但光
 关于 push 有一条刻意的设计：**失败时原样转述 git 的话**。远端连不上和凭据缺失需要完全不同的修法，而只有 git 知道是哪一种 —— 所以我把它当成结果展示，而不是翻译成一句友好的猜测。
 
 **诚实交代覆盖缺口**：这三项的 Host 侧有 15 条断言（分支/上游/领先落后、`--follow` 的文件历史、只统计该文件的行数、push 拒绝 GET、不可达远端时原样返回 git 的消息）。**客户端侧这一轮没有留下自动化断言** —— 我在推进"文件钉版 / 推送两段式"的用例时撞上了 harness 的控制器实例身份问题（卸载后缓存清空，测试持有的控制器与视图渲染用的不是同一个），调试到预算边缘后我选择**回滚测试文件**（318 条全绿）而不是留下一堆红条或为了通过而改产品。这两条路径需要人工确认一次。
+## 分隔视图的重叠：flex 收缩的是盒子，不是字
+
+截图现象：并排对比里两列的文字**互相压在一起**。
+
+```css
+.dshdv-splitCell{flex:1 1 50%; min-width:0; white-space:pre}   /* 没有 overflow */
+```
+
+`flex:1 1 50%` + `min-width:0` 只保证**盒子**能被压缩到 50%；而 `white-space:pre` 让长行不换行，**字形照样画到盒子外面**，于是直接盖在隔壁列上。两个修法：
+
+1. **裁剪**：`.dshdv-splitCell{overflow:hidden}` —— 单元格内的内容永远不出格。
+2. **让换行开关在分栏里也生效**：原来单元格硬编码 `white-space:pre`，`data-code-wrap` 对它无效 —— 也就是说"换行"这个开关在分隔视图里**被静默忽略**了。现在补上 `.dshdv-code[data-code-wrap="true"] .dshdv-splitCell{white-space:pre-wrap;overflow-wrap:anywhere}`，默认（换行开）下长行在自己的格子里折行，什么都不会被裁掉。
+
+顺带确认了一件没坏的事：`splitRows` 的配对是对的（删除与新增按序号配对，缺的一侧留空单元格），所以两列始终逐行对应，不会错位。
 ## 空窗格不该是滚动容器
 
 截图里的现象：窗格已经空了（"当前范围没有改动"），右侧却仍有一条滚动条槽。成因是**真的溢出**，不是观感问题：
@@ -472,7 +486,7 @@ dsh plugin add link:F:/deepseek_harness_workspace/dsh-diff-view
 
 ```bash
 node tools/test-host.mjs      # 191 项：解析器对真实 git 输出、路由行为、会话折叠与兜底、围栏
-node tools/smoke-client.mjs   # 318 项：契约、注册、渲染、交互、失败态
+node tools/smoke-client.mjs   # 321 项：契约、注册、渲染、交互、失败态
 npm test                      # 两个都跑
 ```
 

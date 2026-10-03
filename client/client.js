@@ -857,7 +857,13 @@ window.__ModuleLoader__.load({
 			'.dshdv-code[data-code-wrap="true"] .dshdv-line,.dshdv-code[data-code-wrap="true"] .dshdv-hunkHeader{white-space:pre-wrap;overflow-wrap:anywhere}',
 			'.dshdv-text{flex:1 1 auto;min-width:0}',
 			'.dshdv-split{display:flex;align-items:flex-start}',
-			'.dshdv-splitCell{flex:1 1 50%;min-width:0;display:flex;align-items:flex-start;border-right:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.06));padding:0 12px;white-space:pre}',
+			/* A side-by-side cell CLIPS. `flex:1 1 50%` with `min-width:0` only lets the
+			 * BOX shrink — the glyphs of an unwrapped long line still painted outside it,
+			 * straight over the other column, which is what the overlap was. And the cell
+			 * has to be told about the wrap setting like any other line: with it on, a
+			 * long line wraps inside its own cell and nothing is hidden at all. */
+			'.dshdv-splitCell{flex:1 1 50%;min-width:0;overflow:hidden;display:flex;align-items:flex-start;border-right:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.06));padding:0 12px;white-space:pre}',
+			'.dshdv-code[data-code-wrap="true"] .dshdv-splitCell{white-space:pre-wrap;overflow-wrap:anywhere}',
 			'.dshdv-splitCell[data-kind="add"]{color:var(--dsw-alias-state-success-primary,#1a7f37);background:var(--dsw-alias-code-diff-added,rgba(34,197,94,.08))}',
 			'.dshdv-splitCell[data-kind="del"]{color:var(--dsw-alias-state-error-primary,#c0392b);background:var(--dsw-alias-code-diff-deleted,rgba(220,38,38,.08))}',
 			'.dshdv-splitCell[data-empty="true"]{background:transparent}',

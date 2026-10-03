@@ -2111,6 +2111,16 @@ const metricsOf = rule => rule.split(';')
   .join(';')
 check('the layer and the textarea agree on every metric', metricsOf(inputRule) === metricsOf(layerRule) && metricsOf(inputRule).includes('font:'), JSON.stringify({ input: metricsOf(inputRule), layer: metricsOf(layerRule) }))
 check('the layer scrolls with the textarea instead of beside it', layerRule.includes('position:absolute') && layerRule.includes('pointer-events:none'), layerRule)
+/* A side-by-side cell must CLIP. `flex:1 1 50%` with `min-width:0` only lets the
+ * box shrink — the glyphs of an unwrapped long line still painted OUTSIDE it, over
+ * the other column, which is exactly the overlap the screenshot showed. And the
+ * cell has to be told about the wrap setting like any other line, or the toggle
+ * silently does nothing in this layout. */
+const splitCellRule = /^\.dshdv-splitCell\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
+check('a side-by-side cell clips its own text', splitCellRule.includes('overflow:hidden'), splitCellRule)
+check('and can shrink below its content', splitCellRule.includes('min-width:0'), splitCellRule)
+const splitWrapRule = /^\.dshdv-code\[data-code-wrap="true"\] \.dshdv-splitCell\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
+check('the wrap setting reaches the side-by-side cells too', splitWrapRule.includes('pre-wrap'), splitWrapRule)
 /* The gutter's numbers must sit on the code's baselines: same font, and a top
  * padding equal to the code's. */
 const gutterRule = /^\.dshdv-fvGutterInner\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
