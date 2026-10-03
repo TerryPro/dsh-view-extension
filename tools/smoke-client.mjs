@@ -49,9 +49,39 @@ const settle = async (rounds = 8) => {
 
 /* ------------------------------------------------------------------ *
  * Minimal React
+ *
+ * Enough of the real thing to make a hook-using, memoized component tree
+ * behave: per-component hook scopes (so a memoized child keeps its own slots),
+ * `React.memo` with a custom comparator and the bailout it implies, and effect
+ * flushing on render.
  * ------------------------------------------------------------------ */
 
-const hooksState = { slots: [], index: 0, dirty: false, pending: [] }
+let hooksState = { slots: [], index: 0, dirty: false, pending: [] }
+
+/**
+ * The dirty flag is process-wide on purpose: a store notification arrives while
+ * no component is rendering, so it cannot belong to any one component's scope.
+ */
+let anyDirty = false
+
+/** Every hook scope a component render created, so a teardown can reach them. */
+const componentScopes = new Set()
+/** How many times each host element type was actually called. */
+const renderCounts = new Map()
+
+function countRender(name) {
+  renderCounts.set(name, (renderCounts.get(name) ?? 0) + 1)
+}
+
+/** Read one counter. */
+function rendersOf(name) {
+  return renderCounts.get(name) ?? 0
+}
+
+/** Clear the counters. */
+function resetRenderCounts() {
+  renderCounts.clear()
+}
 
 function sameDeps(previous, next) {
   if (previous === undefined || next === undefined) return false
@@ -70,52 +100,155 @@ function registerEffect(fn, deps) {
   hooksState.pending.push({ at, fn })
 }
 
+/** Component instances by tree path, so the bailout can return the previous element. */
+const componentInstances = new Map()
+
+/**
+ * Elements built since the last reset.
+ *
+ * This is the number that decides whether a refresh is felt: React reconciles
+ * whatever a component returns, so an element built for a 1000-line comparison
+ * is 1000 elements reconciled — per render, forever, unless the subtree bails
+ * out of a memo.
+ */
+let elementsCreated = 0
+
+/** Store notifications delivered to the view: each one is a render. */
+let notifications = 0
+
 const React = {
   createElement(type, props) {
     const children = Array.prototype.slice.call(arguments, 2).flat(Infinity)
       .filter(child => child !== null && child !== undefined && child !== false && child !== true)
+    elementsCreated += 1
     return { __el: true, type, props: Object.assign({}, props, { children }) }
   },
   Fragment: Symbol('Fragment'),
+  memo(component, sameProps) {
+    const compared = sameProps ?? ((previous, next) => {
+      const keys = new Set([...Object.keys(previous), ...Object.keys(next)])
+      for (const key of keys) if (previous[key] !== next[key]) return false
+      return true
+    })
+    const Memoized = function Memoized(props) {
+      return component(props)
+    }
+    Memoized.__memo = { component, compared }
+    return Memoized
+  },
   useState(initial) {
     const at = hooksState.index
+    /* The setter belongs to the component that created it: an event handler runs
+     * long after the render, when `hooksState` is somebody else's scope. */
+    const scope = hooksState
     hooksState.index += 1
-    if (!(at in hooksState.slots)) hooksState.slots[at] = typeof initial === 'function' ? initial() : initial
-    return [hooksState.slots[at], (value) => {
-      const next = typeof value === 'function' ? value(hooksState.slots[at]) : value
-      if (next === hooksState.slots[at]) return
-      hooksState.slots[at] = next
-      hooksState.dirty = true
+    if (!(at in scope.slots)) scope.slots[at] = typeof initial === 'function' ? initial() : initial
+    return [scope.slots[at], (value) => {
+      const next = typeof value === 'function' ? value(scope.slots[at]) : value
+      if (next === scope.slots[at]) return
+      scope.slots[at] = next
+      anyDirty = true
     }]
   },
   useEffect(fn, deps) { registerEffect(fn, deps) },
   useLayoutEffect(fn, deps) { registerEffect(fn, deps) },
   useRef(initial) {
     const at = hooksState.index
+    const scope = hooksState
     hooksState.index += 1
-    if (!(at in hooksState.slots)) hooksState.slots[at] = { current: initial }
-    return hooksState.slots[at]
+    if (!(at in scope.slots)) scope.slots[at] = { current: initial }
+    return scope.slots[at]
   },
   useMemo(fn) { return fn() },
   useCallback(fn) { return fn },
   useSyncExternalStore(subscribe, getSnapshot) {
     const at = hooksState.index
+    const scope = hooksState
     hooksState.index += 1
-    if (!(at in hooksState.slots)) {
-      hooksState.slots[at] = { unsubscribe: subscribe(() => { hooksState.dirty = true }) }
+    if (!(at in scope.slots)) {
+      scope.slots[at] = { unsubscribe: subscribe(() => { notifications += 1; anyDirty = true }) }
     }
     return getSnapshot()
   },
 }
 
+/**
+ * Render one component function inside its own hook scope.
+ *
+ * The scope is keyed by the component's own props object, and `render()` reuses
+ * the props objects it created on the previous pass — so a component that is
+ * re-rendered keeps its hook state (mount semantics), and a memoized component
+ * whose props did not change keeps its whole subtree, which is the bailout the
+ * render-count assertions measure.
+ */
+/**
+ * Render one component function inside its own hook scope.
+ *
+ * A component INSTANCE is identified by its position in the tree (or its
+ * explicit `key`), exactly as React identifies it — never by its type, because
+ * the same type is legitimately mounted many times over (one file row per
+ * file). The scope therefore survives re-renders and state written by an event
+ * handler is visible on the next pass.
+ */
+function renderComponent(type, props, path) {
+  const outer = hooksState
+  const name = (type.__memo === undefined ? type.name : type.__memo.component.name) || 'component'
+  const instance = componentInstances.get(path)
+
+  /* The memo bailout: unchanged props under the component's own comparator keep
+   * the subtree it produced last time, exactly as React does. The comparison is
+   * recomputed against the CURRENT props on every pass — caching its previous
+   * answer would freeze the row at whatever it showed first. */
+  if (type.__memo !== undefined && instance !== undefined && type.__memo.compared(instance.props, props)) {
+    countRender(`${name}:bailout`)
+    componentInstances.set(path, { ...instance, props })
+    return instance.element
+  }
+
+  const scope = instance !== undefined ? instance.scope : { slots: [], index: 0, dirty: false, pending: [] }
+  scope.index = 0
+  hooksState = scope
+  let rendered
+  try {
+    countRender(name)
+    rendered = (type.__memo === undefined ? type : type.__memo.component)(props)
+  } finally {
+    hooksState = outer
+  }
+  for (const entry of scope.pending) {
+    const cleanup = entry.fn()
+    scope.slots[entry.at].cleanup = typeof cleanup === 'function' ? cleanup : undefined
+  }
+  /* The queue is per render pass: leaving an entry in it would re-run the effect
+   * on every later pass, which is a harness bug, not a component one. */
+  scope.pending = []
+  const element = resolveChildren(rendered, path)
+  componentInstances.set(path, { props, scope, element })
+  return element
+}
+
+/** Resolve one element's rendered output, giving every child a stable path. */
+function resolveChildren(rendered, path) {
+  const list = Array.isArray(rendered) ? rendered : [rendered]
+  return list.map((child, index) => {
+    const key = child !== null && child !== undefined && child.__el === true && child.props.key !== undefined
+      ? `k:${child.props.key}`
+      : `i:${index}`
+    return resolveNode(child, `${path}/${key}`)
+  }).flat().filter(child => child !== null && child !== undefined)
+}
+
 /** Resolve function components and fragments into a plain element tree. */
-function resolveNode(node) {
+function resolveNode(node, path = 'root') {
   if (node === null || node === undefined || typeof node !== 'object') return node
-  if (Array.isArray(node)) return node.map(resolveNode)
   if (node.__el !== true) return node
-  if (node.type === React.Fragment) return chunksOf(node.props.children)
-  if (typeof node.type === 'function') return resolveNode(node.type(node.props))
-  return { type: node.type, props: node.props, children: (node.props.children || []).map(resolveNode) }
+  if (node.type === React.Fragment) return resolveChildren(node.props.children, `${path}/frag`)
+  if (typeof node.type === 'function') return renderComponent(node.type, node.props, path)
+  return {
+    type: node.type,
+    props: node.props,
+    children: resolveChildren(node.props.children, path),
+  }
 }
 
 function chunksOf(children) {
@@ -167,6 +300,19 @@ function unmount() {
       if (typeof slot.cleanup === 'function') slot.cleanup()
     }
   }
+  /* Every component instance goes with the unmount: leaving them behind would
+   * make the next render a re-render of dead state, which is how a test ends up
+   * asserting against the previous block's screen. */
+  for (const instance of componentInstances.values()) {
+    for (const slot of instance.scope.slots) {
+      if (slot !== null && typeof slot === 'object') {
+        if (typeof slot.unsubscribe === 'function') slot.unsubscribe()
+        if (typeof slot.cleanup === 'function') slot.cleanup()
+      }
+    }
+  }
+  componentInstances.clear()
+  componentScopes.clear()
   // The plugin's own `ctx.effect` bodies hold the per-Session controllers; a
   // remount in the real shell keeps them, so the test keeps them too — except
   // when it is deliberately starting over.
@@ -175,36 +321,24 @@ function unmount() {
   }
   hooksState.slots = []
   hooksState.index = 0
-  hooksState.dirty = false
   hooksState.pending = []
-  hooksState.mounted = false
 }
 unmount.disposeControllers = false
 
-/** Render until nothing is dirty and no effect is pending.
+/**
+ * Render until no state write is outstanding.
  *
- * The first call after an {@link unmount} is a MOUNT: the hook table starts
- * empty, so every effect runs. A later call is a re-render of that same mount,
- * so hook slots and their deps survive exactly as React keeps them — which is
- * what makes "did this effect re-run?" mean anything.
+ * Each pass resolves the whole tree; component scopes are keyed by tree path, so
+ * a component that is rendered again keeps its hooks and its memo state. A pass
+ * that produces no state write ends the loop.
  */
 async function render(element, passes = 40) {
-  if (hooksState.mounted !== true) {
-    hooksState.slots = []
-    hooksState.mounted = true
-  }
   let tree = null
   for (let pass = 0; pass < passes; pass += 1) {
-    hooksState.index = 0
-    hooksState.dirty = false
-    hooksState.pending = []
+    anyDirty = false
     tree = resolveNode(element)
-    for (const entry of hooksState.pending) {
-      const cleanup = entry.fn()
-      hooksState.slots[entry.at].cleanup = typeof cleanup === 'function' ? cleanup : undefined
-    }
     await settle(4)
-    if (!hooksState.dirty && hooksState.pending.length === 0) break
+    if (!anyDirty) break
   }
   return tree
 }
@@ -212,6 +346,39 @@ async function render(element, passes = 40) {
 /** Add one more render pass after an interaction changed state. */
 async function rerender(element) {
   return await render(element)
+}
+
+/**
+ * Count what one silent refresh costs.
+ *
+ * The refresh is driven directly (rather than by the timer) and measured BEFORE
+ * any further render pass, so the numbers describe the tick itself: how many
+ * store notifications it published (each one is a render in the real shell) and
+ * how many elements were built while it ran.
+ *
+ * @returns `{ elements, rows, bailouts, notifications, requests }`.
+ */
+async function measureRefresh() {
+  const before = {
+    elements: elementsCreated,
+    requests: requests.length,
+    notifications,
+    rows: rendersOf('FileRow'),
+    bailouts: rendersOf('FileRow:bailout'),
+  }
+  await registration.options.inject('sess-1').controller.refresh('sess-1')
+  await settle(6)
+  const measured = {
+    elements: elementsCreated - before.elements,
+    rows: rendersOf('FileRow') - before.rows,
+    bailouts: rendersOf('FileRow:bailout') - before.bailouts,
+    notifications: notifications - before.notifications,
+    requests: requests.length - before.requests,
+  }
+  // A pass afterwards only refreshes the tree the caller asserts against; it is
+  // deliberately outside the measurement.
+  await rerender(viewElement())
+  return measured
 }
 
 /* ------------------------------------------------------------------ *
@@ -283,7 +450,12 @@ const ORIGIN = 'http://host'
 
 async function fetchStub(url, options) {
   fetchStub.calls += 1
-  requests.push({ url: String(url), credentials: options?.credentials })
+  requests.push({
+    url: String(url),
+    credentials: options?.credentials,
+    method: options?.method ?? 'GET',
+    body: options?.body,
+  })
   const body = responses.get(String(url))
   if (body === undefined) {
     return {
@@ -291,6 +463,9 @@ async function fetchStub(url, options) {
       status: 404,
       async json() { return { ok: false, error: { code: 'diff/unknown-file', message: 'no such file' } } },
     }
+  }
+  if (body.__status !== undefined && body.__status >= 400) {
+    return { ok: false, status: body.__status, async json() { return body } }
   }
   return { ok: true, status: 200, async json() { return body } }
 }
@@ -398,6 +573,26 @@ check('exactly one stylesheet is appended', styleNodes.length === 1, String(styl
 check('the stylesheet is namespaced', styleNodes[0]?.textContent.includes('.dshdv-root') === true)
 check('the stylesheet uses a theme token', styleNodes[0]?.textContent.includes('--dsw-alias-') === true)
 
+/* The row selection visual is the shell's own, not this plugin's invention.
+ * `ui-workspace` Rows `.sessionRow.selected` and `ui-sidebar-files` FilesBody
+ * `.row:hover` both use ONE interactive fill token and `--dsw-radius-md`; an
+ * accent bar, a brand tint or a bold name reads as a foreign element inside the
+ * shell, so this guard exists to keep them out. */
+const styles = styleNodes[0]?.textContent ?? ''
+const rowRule = /\.dshdv-row\{([^}]*)\}/u.exec(styles)?.[1] ?? ''
+const selectedRule = /\.dshdv-row\[aria-selected="true"\]\{([^}]*)\}/u.exec(styles)?.[1] ?? ''
+const hoverRule = /\.dshdv-row:hover\{([^}]*)\}/u.exec(styles)?.[1] ?? ''
+check('a row uses the shell radius token', rowRule.includes('var(--dsw-radius-md'), rowRule)
+check('a row uses primary ink', rowRule.includes('var(--dsw-alias-label-primary'), rowRule)
+check('selection uses the shell interactive fill', selectedRule.includes('var(--dsw-alias-interactive-bg-hover'), selectedRule)
+check('hover uses the same fill as selection', hoverRule.includes('var(--dsw-alias-interactive-bg-hover'), hoverRule)
+check('selection adds no accent bar', selectedRule.includes('box-shadow') === false, selectedRule)
+check('selection adds no brand tint', selectedRule.includes('brand') === false, selectedRule)
+check('selection does not bold the name', styles.includes('.dshdv-row[aria-selected="true"] .dshdv-name') === false)
+const toolRule = /\.dshdv-btn\{([^}]*)\}/u.exec(styles)?.[1] ?? ''
+check('the strip button is the shell 28px icon button', toolRule.includes('width:28px') && toolRule.includes('height:28px'), toolRule)
+check('the strip button fills with the shared interactive token', styles.includes('.dshdv-btn:hover{color:var(--dsw-alias-label-primary,#1b1f24);background:var(--dsw-alias-interactive-bg-hover'), 'btn hover rule')
+
 /* ------------------------------------------------------------------ *
  * 3. the view: list, selection, comparison, filter, errors
  * ------------------------------------------------------------------ */
@@ -434,6 +629,8 @@ const TEXT_DIFF = {
   ],
 }
 
+/* One file changed in both turns (with different numbers each time) and one
+ * changed only in the first: exactly the shape the per-turn view exists for. */
 const SESSION_LIST = {
   ok: true,
   scope: 'session',
@@ -444,8 +641,43 @@ const SESSION_LIST = {
   turns: [2, 1],
   turn: 2,
   files: [
-    { path: 'src/keep.txt', display: 'src/keep.txt', status: 'modified', added: 4, deleted: 1, changedTurns: [1, 2], at: { turn: 2, seq: 9, index: 0 } },
+    {
+      path: 'src/keep.txt', display: 'src/keep.txt', status: 'modified', added: 4, deleted: 1,
+      changedTurns: [1, 2], at: { turn: 2, seq: 9, index: 0 },
+      sources: [
+        { turn: 1, seq: 4, index: 0, status: 'modified', added: 1, deleted: 0 },
+        { turn: 2, seq: 9, index: 0, status: 'modified', added: 4, deleted: 1 },
+      ],
+    },
+    {
+      path: 'src/early.txt', display: 'src/early.txt', status: 'added', added: 1, deleted: 0,
+      changedTurns: [1], at: { turn: 1, seq: 4, index: 1 },
+      sources: [{ turn: 1, seq: 4, index: 1, status: 'added', added: 1, deleted: 0 }],
+    },
+    {
+      path: 'src/late.txt', display: 'src/late.txt', status: 'added', added: 5, deleted: 0,
+      changedTurns: [2], at: { turn: 2, seq: 9, index: 2 },
+      sources: [{ turn: 2, seq: 9, index: 2, status: 'added', added: 5, deleted: 0 }],
+    },
+    {
+      path: 'src/gone.txt', display: 'src/gone.txt', status: 'deleted', added: 0, deleted: 3,
+      changedTurns: [2], at: { turn: 2, seq: 9, index: 1 },
+      sources: [{ turn: 2, seq: 9, index: 1, status: 'deleted', added: 0, deleted: 3 }],
+    },
   ],
+}
+
+/** One session comparison, addressed by turn. */
+function sessionDiff(turn, body, path = 'src/keep.txt') {
+  return { ok: true, scope: 'session', path, kind: 'text', before: true, after: true, coarse: false, turn, hunks: body }
+}
+
+/* The client percent-encodes the whole `at` value, colons included. */
+const SESSION_FILES = {
+  keepOne: '/api/dsh-diff/file?scope=session&sessionId=sess-1&path=src%2Fkeep.txt&at=1%3A4%3A0',
+  keepTwo: '/api/dsh-diff/file?scope=session&sessionId=sess-1&path=src%2Fkeep.txt&at=2%3A9%3A0',
+  earlyOne: '/api/dsh-diff/file?scope=session&sessionId=sess-1&path=src%2Fearly.txt&at=1%3A4%3A1',
+  lateTwo: '/api/dsh-diff/file?scope=session&sessionId=sess-1&path=src%2Flate.txt&at=2%3A9%3A2',
 }
 
 function seedRoutes() {
@@ -464,6 +696,10 @@ function seedRoutes() {
       coarse: false,
       hunks: [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 2, lines: ['+fresh', '+lines'] }],
     }],
+    [SESSION_FILES.keepOne, sessionDiff(1, [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 2, lines: [' first', '+turn-one'] }])],
+    [SESSION_FILES.keepTwo, sessionDiff(2, [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 2, lines: [' first', '+turn-two'] }])],
+    [SESSION_FILES.earlyOne, sessionDiff(1, [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 2, lines: ['+early', '+file'] }], 'src/early.txt')],
+    [SESSION_FILES.lateTwo, sessionDiff(2, [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 2, lines: ['+late', '+file'] }], 'src/late.txt')],
   ])
 }
 
@@ -474,6 +710,20 @@ const viewProps = {
   t: (key, values) => {
     const copies = {
       'view.label': '变更',
+      'turn.all': '全部轮次',
+      'turn.chip': '第 {turn} 轮',
+      'turn.tag': 'T{turn}',
+      'turn.lastChange': '最后一次改动：第 {turn} 轮',
+      'mode.delta': '本轮改动',
+      'mode.state': '累计状态',
+      'summary.deletedFiles': '{count} 个已删除',
+      'commit.action': '记一笔',
+      'commit.title': '提交到 git',
+      'commit.confirm': '确认提交？',
+      'commit.busy': '正在提交…',
+      'commit.done': '已提交 {revision}',
+      'commit.clean': '没有需要提交的改动',
+      'commit.failed': '提交失败：{detail}',
       'scope.git': '工作区',
       'scope.session': '本次会话',
       'summary.files': '{count} 个文件',
@@ -534,6 +784,21 @@ check('the toolbar totals additions and deletions', textOf(tree).includes('+4') 
 const hunkHeaders = findAll(tree, node => typeof node.children?.[0] === 'string' && node.children[0].startsWith('@@'))
 check('the first file comparison is drawn', hunkHeaders.length === 1, String(hunkHeaders.length))
 check('the hunk header carries both ranges', hunkHeaders[0]?.children?.[0] === '@@ -1,3 +1,4 @@', String(hunkHeaders[0]?.children?.[0]))
+
+/* The flex row that places the list beside the comparison has exactly two
+ * children. Splice a header or a scroll body into it and the detail pane stops
+ * being a column: the code column collapses and every line wraps into a
+ * readable-looking mess. This is the structure assertion that catches it. */
+const main = findAll(tree, node => node.props !== undefined && node.props.className === 'dshdv-main')[0]
+check('the main row exists', main !== undefined)
+check('the main row holds exactly the list and the detail pane', (main?.children ?? []).length === 2, JSON.stringify((main?.children ?? []).map(child => child?.props?.className)))
+const body = findAll(tree, node => node.props !== undefined && node.props.className === 'dshdv-body')[0]
+check('the detail pane is one column', body !== undefined)
+const bodyChildren = (body?.children ?? []).map(child => child?.props?.className)
+check('the detail column holds the header and the comparison', bodyChildren.length === 2 && bodyChildren[0] === 'dshdv-head' && String(bodyChildren[1]).startsWith('dshdv-scroll'), JSON.stringify(bodyChildren))
+check('the header is not a sibling of the list', (main?.children ?? []).every(child => child?.props?.className !== 'dshdv-head'))
+check('the comparison scroll is not a sibling of the list', (main?.children ?? []).every(child => String(child?.props?.className ?? '').indexOf('dshdv-scroll') === -1))
+
 const lines = findAll(tree, node => node.props !== undefined && node.props['data-kind'] !== undefined)
 check('every hunk line is drawn', lines.length === 5, String(lines.length))
 check('a deletion is marked as one', lines.some(line => line.props['data-kind'] === 'del'))
@@ -542,11 +807,65 @@ const addedLine = lines.find(line => line.props['data-kind'] === 'add')
 check('an addition keeps its text', textOf(addedLine).includes('two changed'), textOf(addedLine))
 check('the selected path is shown in the header', findAll(tree, node => node.props !== undefined && node.props['data-dsh-diff-path'] !== undefined).length === 1)
 
+console.log('\nthe auto-refresh cadence')
+seedRoutes()
+unmount()
+tree = await render(viewElement())
+const beforeRefresh = requests.length
+await registration.options.inject('sess-1').controller.refresh('sess-1')
+await settle(6)
+tree = await rerender(viewElement())
+check('a silent refresh re-reads the list', requests.length > beforeRefresh, `${beforeRefresh} -> ${requests.length}`)
+check('a silent refresh does not re-read an unchanged comparison', requests.filter(entry => entry.url === FILE_KEEP).length === 1, JSON.stringify(requests.map(entry => entry.url)))
+check('a silent refresh keeps the comparison on screen', findAll(tree, node => typeof node.children?.[0] === 'string' && node.children[0].startsWith('@@')).length === 1)
+check('a silent refresh keeps the rows on screen', findAll(tree, node => node.props !== undefined && node.props['data-path'] !== undefined).length === 3)
+check('a silent refresh never shows the list spinner', textOf(tree).includes('正在读取改动…') === false, textOf(tree))
+check('the cadence schedules one read at a time rather than polling', timers.intervals.length === 0, `${timers.intervals.length} intervals`)
+check('the next read is scheduled with a timeout', timers.timeouts.length >= 1, `${timers.timeouts.length} timeouts`)
+
+/* The cost a refresh must NOT pay: rebuilding the comparison on screen. A diff
+ * is the largest subtree in this view, so re-creating it every tick is what a
+ * reader feels as stutter even when every value is identical. */
+const budget = await measureRefresh()
+check('a silent refresh with nothing new publishes no state change', budget.notifications === 0, `${budget.notifications} notifications`)
+check('a silent refresh does not rebuild the comparison on screen', budget.elements === 0, `${budget.elements} elements built`)
+check('a silent refresh does not re-render a file row', budget.rows === 0, `${budget.rows} rows rendered`)
+console.log(`  ·  one silent refresh on an unchanged tree: ${budget.requests} request, ${budget.notifications} store notifications, ${budget.elements} elements, ${budget.rows} row renders, ${budget.bailouts} memo bailouts`)
+
+// A file whose own numbers moved is the one case that must re-read.
+seedRoutes()
+responses.set(FILES_GIT, {
+  ok: true, scope: 'git', cwd: 'F:/ws', repo: 'F:/ws', added: 9, deleted: 2,
+  files: [
+    { path: 'src/keep.txt', display: 'src/keep.txt', status: 'modified', added: 7, deleted: 2 },
+    { path: 'untracked.txt', display: 'untracked.txt', status: 'untracked', added: 2, deleted: 0 },
+    { path: 'src/logo.png', display: 'src/logo.png', status: 'binary', added: 0, deleted: 0, binary: true },
+  ],
+})
+await registration.options.inject('sess-1').controller.refresh('sess-1')
+await settle(6)
+check('a file whose counts moved is re-read', requests.filter(entry => entry.url === FILE_KEEP).length === 1, JSON.stringify(requests.map(entry => entry.url)))
+
 console.log('\nselection and layouts')
 seedRoutes()
+// Measure what one click costs: rows are memoized, the list fold keeps
+// unchanged entries as the same objects, and the handlers are stable — so a
+// click must re-render the two rows whose selection flipped and nothing else.
+resetRenderCounts()
+const selectedBefore = findAll(tree, node => node.props !== undefined && node.props['data-path'] !== undefined)
+  .filter(node => node.props['aria-selected'] === true).map(node => node.props['data-path'])
 const secondRow = findAll(tree, node => node.props !== undefined && node.props['data-path'] === 'untracked.txt')[0]
 secondRow.props.onClick()
 tree = await rerender(viewElement())
+const selectedAfter = findAll(tree, node => node.props !== undefined && node.props['data-path'] !== undefined)
+  .filter(node => node.props['aria-selected'] === true).map(node => node.props['data-path'])
+check('the row that was selected before the click was the first file', JSON.stringify(selectedBefore) === JSON.stringify(['src/keep.txt']), JSON.stringify(selectedBefore))
+check('the clicked row becomes the selected one', JSON.stringify(selectedAfter) === JSON.stringify(['untracked.txt']), JSON.stringify(selectedAfter))
+const rowRenders = rendersOf('FileRow')
+const rowBailouts = rendersOf('FileRow:bailout')
+check('a click re-renders only the rows whose selection changed', rowRenders <= 4, `${rowRenders} row renders (limit 4)`)
+check('every other row bails out of the memo', rowBailouts >= 1, `${rowBailouts} memo bailouts`)
+console.log(`  ·  one click: ${rowRenders} FileRow renders, ${rowBailouts} memo bailouts, ${requests.length} requests`)
 check('selecting a row reads that file', requests.some(entry => entry.url === FILE_UNTRACKED), JSON.stringify(requests.map(entry => entry.url)))
 check('the new comparison replaces the old one', textOf(tree).includes('fresh'), textOf(tree))
 const notedLines = findAll(tree, node => node.props !== undefined && node.props['data-diff-note'] !== undefined)
@@ -591,6 +910,173 @@ const sessionFileCall = requests.map(entry => parsed(entry.url)).find(entry => e
 check('a session file carries its turn coordinate', sessionFileCall?.searchParams.get('at') === '2:9:0', sessionFileCall?.search ?? 'no file call')
 check('a session file decodes to its repository path', sessionFileCall?.searchParams.get('path') === 'src/keep.txt', sessionFileCall?.searchParams.get('path') ?? '')
 check('the chosen scope is remembered', storage.get('dsh-diff-view.scope') === 'session', String(storage.get('dsh-diff-view.scope')))
+
+console.log('\nthe turn filter')
+/** The turn chips currently rendered, in order. */
+const turnChips = () => findAll(tree, node => node.type === 'button' && node.props !== undefined && node.props['data-turn'] !== undefined)
+/** The row paths currently rendered. */
+const rowPaths = () => findAll(tree, node => node.props !== undefined && node.props['data-path'] !== undefined).map(node => node.props['data-path'])
+/** The last session comparison the view asked for. */
+const lastSessionAt = () => {
+  const call = requests.map(entry => parsed(entry.url)).filter(entry => entry.pathname === '/api/dsh-diff/file' && entry.searchParams.get('scope') === 'session').pop()
+  return call?.searchParams.get('at') ?? null
+}
+
+seedRoutes()
+// The search box still holds the previous block's needle; clear it the way a
+// reader would before reading the turn strip's own numbers.
+const staleFilter = findAll(tree, node => node.type === 'input' && node.props !== undefined && node.props['data-dsh-diff-filter'] !== undefined)[0]
+staleFilter.props.onChange({ target: { value: '' } })
+tree = await rerender(viewElement())
+check('the turn strip is present in the session scope', findAll(tree, node => node.props !== undefined && node.props['data-dsh-diff-turns'] !== undefined).length === 1)
+const chips = turnChips()
+check('one chip per turn plus the aggregate', chips.length === 3, JSON.stringify(chips.map(chip => chip.props['data-turn'])))
+check('chips read newest turn first', JSON.stringify(chips.map(chip => chip.props['data-turn'])) === JSON.stringify(['all', '2', '1']), JSON.stringify(chips.map(chip => chip.props['data-turn'])))
+check('the aggregate chip counts every file', textOf(chips[0]).includes('4'), textOf(chips[0]))
+check('a turn chip counts only its own files', textOf(chips[1]).includes('3') && textOf(chips[2]).includes('2'), `${textOf(chips[1])} / ${textOf(chips[2])}`)
+check('the aggregate chip starts pressed', chips[0].props['aria-pressed'] === true)
+check('the aggregate view lists every file', rowPaths().length === 4, JSON.stringify(rowPaths()))
+
+// Turn 1: the two files it touched, and the comparison read at TURN 1's coordinate.
+chips[2].props.onClick()
+await settle(4)
+tree = await rerender(viewElement())
+check('choosing a turn presses its chip', turnChips()[2].props['aria-pressed'] === true, JSON.stringify(turnChips().map(chip => chip.props['aria-pressed'])))
+check('choosing a turn narrows the list to its files', JSON.stringify(rowPaths().sort()) === JSON.stringify(['src/early.txt', 'src/keep.txt']), JSON.stringify(rowPaths()))
+check('the first file of that turn becomes selected', lastSessionAt() === '1:4:0', String(lastSessionAt()))
+/* This pair of assertions is also the regression guard for a memo comparator
+ * that compared a prop DiffBody never receives: a comparison that arrived in the
+ * SAME phase as the one on screen was silently ignored, so the pane kept showing
+ * the previous turn's (or file's) content. A local read is fast enough that no
+ * render happens in between, which is exactly how that bug survived the git-scope
+ * tests — there the phase changes, here it may not. */
+check('the comparison on screen is that turn\'s', textOf(tree).includes('turn-one'), textOf(tree))
+const firstRowCounts = textOf(findAll(tree, node => node.props !== undefined && node.props['data-path'] === 'src/keep.txt')[0])
+check('a row shows THAT turn\'s counts', firstRowCounts.includes('+1') && firstRowCounts.includes('+4') === false, firstRowCounts)
+
+// Turn 2: only the files that turn changed, deletions included.
+turnChips()[1].props.onClick()
+await settle(4)
+tree = await rerender(viewElement())
+check('the other turn lists only its own files', JSON.stringify(rowPaths().sort()) === JSON.stringify(['src/gone.txt', 'src/keep.txt', 'src/late.txt']), JSON.stringify(rowPaths()))
+check('the comparison is read at that turn\'s coordinate', lastSessionAt() === '2:9:0', String(lastSessionAt()))
+check('the comparison on screen switched turns', textOf(tree).includes('turn-two') && textOf(tree).includes('turn-one') === false, textOf(tree))
+check('the row counts are that turn\'s', textOf(findAll(tree, node => node.props !== undefined && node.props['data-path'] === 'src/keep.txt')[0]).includes('+4'), textOf(findAll(tree, node => node.props !== undefined && node.props['data-path'] === 'src/keep.txt')[0]))
+
+// Back to the aggregate: everything, compared at each file's newest turn.
+turnChips()[0].props.onClick()
+await settle(4)
+tree = await rerender(viewElement())
+check('the aggregate chip restores every file', rowPaths().length === 4, JSON.stringify(rowPaths()))
+check('the aggregate view compares at the newest turn again', lastSessionAt() === '2:9:0', String(lastSessionAt()))
+
+console.log('\nthe state axis')
+/** The mode chips currently rendered. */
+const modeChips = () => findAll(tree, node => node.type === 'button' && node.props !== undefined && node.props['data-mode'] !== undefined)
+/** Press the chip for one axis. */
+const chooseMode = async (mode) => {
+  modeChips().find(chip => chip.props['data-mode'] === mode).props.onClick()
+  await settle(4)
+  tree = await rerender(viewElement())
+}
+
+seedRoutes()
+check('the axis switch is present', modeChips().length === 2, String(modeChips().length))
+check('the delta axis starts pressed', modeChips()[0].props['aria-pressed'] === true && modeChips()[1].props['aria-pressed'] === false, JSON.stringify(modeChips().map(chip => chip.props['aria-pressed'])))
+check('the delta axis counts a turn\'s OWN files', textOf(turnChips()[1]).includes('3'), textOf(turnChips()[1]))
+check('the delta axis lists every changed file', rowPaths().length === 4, JSON.stringify(rowPaths()))
+
+// Turn 2 in the delta axis: exactly what that turn touched, deletions included.
+turnChips()[1].props.onClick()
+await settle(4)
+tree = await rerender(viewElement())
+check('the delta axis lists what the turn touched', JSON.stringify(rowPaths().sort()) === JSON.stringify(['src/gone.txt', 'src/keep.txt', 'src/late.txt']), JSON.stringify(rowPaths()))
+
+// The state axis at the same turn: what EXISTS after it.
+await chooseMode('state')
+check('the state axis is pressed', modeChips()[1].props['aria-pressed'] === true, JSON.stringify(modeChips().map(chip => chip.props['aria-pressed'])))
+check('a file deleted by the turn leaves the state list', rowPaths().includes('src/gone.txt') === false, JSON.stringify(rowPaths()))
+check('a file added by the turn joins the state list', rowPaths().includes('src/late.txt') === true, JSON.stringify(rowPaths()))
+check('the state axis keeps files changed by earlier turns', rowPaths().includes('src/early.txt') === true, JSON.stringify(rowPaths()))
+check('the state list is the files that exist', rowPaths().length === 3, JSON.stringify(rowPaths()))
+check('the deleted file is counted, not listed', textOf(tree).includes('1 个已删除'), textOf(tree))
+check('the axis switch is remembered', storage.get('dsh-diff-view.mode') === 'state', String(storage.get('dsh-diff-view.mode')))
+check('the state axis counts files changed up to the turn', textOf(turnChips()[2]).includes('2'), textOf(turnChips()[2]))
+
+// A file whose last change is an EARLIER turn is still compared at that turn.
+const earlyRow = findAll(tree, node => node.props !== undefined && node.props['data-path'] === 'src/early.txt')[0]
+check('a row names the turn of its last change', textOf(earlyRow).includes('T1'), textOf(earlyRow))
+earlyRow.props.onClick()
+await settle(4)
+tree = await rerender(viewElement())
+check('selecting it reads ITS last change, not the bound turn', lastSessionAt() === '1:4:1', String(lastSessionAt()))
+check('the pane shows that earlier turn\'s comparison', textOf(tree).includes('early'), textOf(tree))
+check('the header names the last change', textOf(tree).includes('最后一次改动：第 1 轮'), textOf(tree))
+
+// Back to the delta axis: the same turn now lists only what it touched.
+await chooseMode('delta')
+check('the delta axis is pressed again', modeChips()[0].props['aria-pressed'] === true, JSON.stringify(modeChips().map(chip => chip.props['aria-pressed'])))
+check('the delta axis drops the file the turn did not change', rowPaths().includes('src/early.txt') === false, JSON.stringify(rowPaths()))
+check('the delta axis brings the deleted file back', rowPaths().includes('src/gone.txt') === true, JSON.stringify(rowPaths()))
+
+console.log('\nthe checkpoint button')
+const COMMIT_URL = '/api/dsh-diff/commit'
+/** The button as it currently stands. */
+const commitButton = () => findAll(tree, node => node.type === 'button' && node.props !== undefined && node.props['data-dsh-diff-commit'] !== undefined)[0]
+/** The note the last checkpoint left, if any. */
+const commitNote = () => findAll(tree, node => node.props !== undefined && node.props['data-dsh-diff-commit-note'] !== undefined)[0]
+/** Press it twice: arm, then commit. */
+const pressCheckpoint = async () => {
+  commitButton().props.onClick()
+  tree = await rerender(viewElement())
+  commitButton().props.onClick()
+  await settle(4)
+  tree = await rerender(viewElement())
+}
+
+seedRoutes()
+check('the checkpoint button is present', commitButton() !== undefined)
+check('it starts idle', commitButton().props['data-dsh-diff-commit'] === 'idle', String(commitButton().props['data-dsh-diff-commit']))
+
+// First press only arms it: nothing is committed until the second.
+commitButton().props.onClick()
+tree = await rerender(viewElement())
+check('the first press arms it', commitButton().props['data-dsh-diff-commit'] === 'confirm', String(commitButton().props['data-dsh-diff-commit']))
+check('the armed button names what the next press does', textOf(commitButton()).includes('确认提交？'), textOf(commitButton()))
+check('arming commits nothing', requests.some(entry => entry.url === COMMIT_URL) === false, JSON.stringify(requests.map(entry => entry.url)))
+
+// The second press commits: one POST carrying the Session.
+responses.set(COMMIT_URL, { ok: true, committed: true, revision: 'abc1234', repository: 'F:/ws', message: 'dsh-diff-view: checkpoint' })
+const listReadsBefore = requests.filter(entry => entry.url === FILES_SESSION).length
+commitButton().props.onClick()
+await settle(4)
+tree = await rerender(viewElement())
+const commitCall = requests.filter(entry => entry.url === COMMIT_URL).pop()
+check('the second press commits', commitCall !== undefined, JSON.stringify(requests.map(entry => entry.url)))
+check('it commits with a POST', commitCall?.method === 'POST', String(commitCall?.method))
+check('the body names the session', JSON.parse(commitCall?.body ?? '{}').sessionId === 'sess-1', String(commitCall?.body))
+check('the body names the turn being viewed', JSON.parse(commitCall?.body ?? '{}').turn === 2, String(commitCall?.body))
+check('the button reports the revision it created', textOf(commitNote() ?? { props: {} }).includes('已提交 abc1234'), textOf(tree))
+check('the list is re-read after a commit', requests.filter(entry => entry.url === FILES_SESSION).length > listReadsBefore, JSON.stringify(requests.map(entry => entry.url)))
+check('the button returns to idle', commitButton().props['data-dsh-diff-commit'] === 'done', String(commitButton().props['data-dsh-diff-commit']))
+
+// A clean tree is an answer, not a failure.
+responses.set(COMMIT_URL, { ok: true, committed: false, reason: 'clean' })
+await pressCheckpoint()
+check('a clean tree says so', textOf(commitNote() ?? { props: {} }).includes('没有需要提交的改动'), textOf(tree))
+
+// A refusal is reported with git's own words.
+responses.set(COMMIT_URL, { __status: 500, ok: false, error: { code: 'diff/commit-failed', message: 'Please tell me who you are' } })
+await pressCheckpoint()
+check('a refused commit is reported', textOf(commitNote() ?? { props: {} }).includes('提交失败：Please tell me who you are'), textOf(tree))
+
+// An armed button must not survive a remount: the reader who armed it is gone.
+commitButton().props.onClick()
+tree = await rerender(viewElement())
+check('it can be armed again', commitButton().props['data-dsh-diff-commit'] === 'confirm', String(commitButton().props['data-dsh-diff-commit']))
+unmount()
+tree = await render(viewElement())
+check('a remount disarms it', commitButton().props['data-dsh-diff-commit'] === 'idle', String(commitButton().props['data-dsh-diff-commit']))
 
 console.log('\nunavailable and failed states')
 seedRoutes()

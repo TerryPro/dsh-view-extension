@@ -45,20 +45,37 @@ window.__ModuleLoader__.load({
 		var NAMESPACE = 'dsh-diff-view';
 		/** The view tab's id in the conversation's roster. */
 		var VIEW_ID = 'diff';
-		/** How long a silent auto-refresh waits between reads. */
+		/** How long a silent auto-refresh waits between reads while the reader is active. */
 		var AUTO_REFRESH_MS = 4000;
+		/** The idle cadence: still fresh, but no longer every few seconds. */
+		var AUTO_REFRESH_IDLE_MS = 20000;
+		/**
+		 * How long the active cadence holds after the reader last did something.
+		 *
+		 * A diff view is only "live" while someone is working in the tree; once
+		 * the reader has been looking at the same picture for half a minute, a
+		 * four-second poll is churn, not freshness.
+		 */
+		var AUTO_REFRESH_ACTIVE_MS = 30000;
 		/** Largest number of diff lines drawn for one file. */
 		var MAX_RENDERED_LINES = 4000;
 		/** Where the wrap preference lives (per browser, like the shell's own). */
 		var WRAP_KEY = NAMESPACE + '.wrap';
 		/** Where the last scope lives, so reopening the tab lands where it left. */
 		var SCOPE_KEY = NAMESPACE + '.scope';
+		/** Where the session scope's axis lives (this turn's changes vs the state after it). */
+		var MODE_KEY = NAMESPACE + '.mode';
 
 		var FILES_URL = '/api/dsh-diff/files';
 		var FILE_URL = '/api/dsh-diff/file';
+		var COMMIT_URL = '/api/dsh-diff/commit';
 
 		var GIT = 'git';
 		var SESSION = 'session';
+		/** What one turn did: only the files that turn changed, at that turn's own diff. */
+		var DELTA_MODE = 'delta';
+		/** What exists after a turn: every file changed so far, at its last change up to it. */
+		var STATE_MODE = 'state';
 
 		var STRINGS = {
 			zh: {
@@ -82,6 +99,24 @@ window.__ModuleLoader__.load({
 				'summary.files': '{count} 个文件',
 				'summary.added': '+{count}',
 				'summary.deleted': '−{count}',
+				'turn.all': '全部轮次',
+				'turn.chip': '第 {turn} 轮',
+				'turn.label': '按轮次筛选',
+				'mode.label': '查看方式',
+				'mode.delta': '本轮改动',
+				'mode.delta.title': '只看选中的那一轮改了什么',
+				'mode.state': '累计状态',
+				'mode.state.title': '看截至选中轮次时，工作区里有哪些文件、各是什么状态',
+				'turn.lastChange': '最后一次改动：第 {turn} 轮',
+				'turn.tag': 'T{turn}',
+				'summary.deletedFiles': '{count} 个已删除',
+				'commit.action': '记一笔',
+				'commit.title': '把当前工作区提交到 git —— 只提交，不推送、不改写历史；工作区干净时不做任何事',
+				'commit.confirm': '确认提交？',
+				'commit.busy': '正在提交…',
+				'commit.done': '已提交 {revision}',
+				'commit.clean': '没有需要提交的改动',
+				'commit.failed': '提交失败：{detail}',
 				'list.empty': '当前范围没有改动',
 				'list.emptyFiltered': '没有匹配的文件',
 				'list.loading': '正在读取改动…',
@@ -138,6 +173,24 @@ window.__ModuleLoader__.load({
 				'summary.files': '{count} files',
 				'summary.added': '+{count}',
 				'summary.deleted': '−{count}',
+				'turn.all': 'All turns',
+				'turn.chip': 'Turn {turn}',
+				'turn.label': 'Filter by turn',
+				'mode.label': 'View axis',
+				'mode.delta': 'This turn',
+				'mode.delta.title': 'Show only what the chosen turn changed',
+				'mode.state': 'Cumulative',
+				'mode.state.title': 'Show which files exist as of the chosen turn, and what state each is in',
+				'turn.lastChange': 'Last changed in turn {turn}',
+				'turn.tag': 'T{turn}',
+				'summary.deletedFiles': '{count} deleted',
+				'commit.action': 'Checkpoint',
+				'commit.title': 'Commit the working tree to git — commit only: no push, no history rewrite, and nothing at all when the tree is clean',
+				'commit.confirm': 'Commit?',
+				'commit.busy': 'Committing…',
+				'commit.done': 'Committed {revision}',
+				'commit.clean': 'Nothing to commit',
+				'commit.failed': 'Commit failed: {detail}',
 				'list.empty': 'No changes in this scope',
 				'list.emptyFiltered': 'No file matches the filter',
 				'list.loading': 'Reading changes…',
@@ -187,65 +240,99 @@ window.__ModuleLoader__.load({
 		 * ------------------------------------------------------------------ */
 
 		var STYLES = [
-			'.dshdv-root{display:flex;flex-direction:column;height:100%;min-height:0;color:var(--dsw-alias-label-primary,#1b1f24);background:var(--dsw-alias-bg-base,#fff);font-size:13px}',
-			'.dshdv-bar{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.08));flex:none;min-height:40px}',
-			'.dshdv-tabs{display:inline-flex;padding:2px;gap:2px;border-radius:8px;background:var(--dsw-alias-bg-layer-2,rgba(0,0,0,.04))}',
-			'.dshdv-tab{border:0;background:transparent;color:var(--dsw-alias-label-secondary,#5b636e);font:inherit;font-size:12px;line-height:18px;padding:3px 10px;border-radius:6px;cursor:pointer}',
-			'.dshdv-tab[aria-selected="true"]{background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-primary,#1b1f24);box-shadow:0 1px 2px rgba(0,0,0,.08)}',
+			'.dshdv-root{display:flex;flex-direction:column;height:100%;min-height:0;color:var(--dsw-alias-label-primary,#1b1f24);background:var(--dsw-alias-bg-base,#fff);font-size:var(--dsh-content-font-size-secondary,13px);line-height:1.5}',
+			'.dshdv-bar{display:flex;align-items:center;gap:8px;padding:6px 12px;border-bottom:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.08));flex:none;min-height:38px;box-sizing:border-box}',
+			'.dshdv-tabs{display:inline-flex;padding:2px;gap:2px;border-radius:var(--dsw-radius-sm,6px);background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}',
+			'.dshdv-tab{border:0;background:transparent;color:var(--dsw-alias-label-secondary,#5b636e);font:inherit;font-size:12px;line-height:18px;padding:3px 10px;border-radius:var(--dsw-radius-sm,6px);cursor:pointer}',
+			'.dshdv-tab:hover{color:var(--dsw-alias-label-primary,#1b1f24)}',
+			'.dshdv-tab[aria-selected="true"]{background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-primary,#1b1f24)}',
 			'.dshdv-tab:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#3b6cf6);outline-offset:1px}',
 			'.dshdv-barSpacer{flex:1 1 auto;min-width:4px}',
 			'.dshdv-filter{position:relative;display:flex;align-items:center;flex:0 1 220px;min-width:120px}',
-			'.dshdv-filter input{width:100%;box-sizing:border-box;height:26px;padding:0 22px 0 8px;border:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.1));border-radius:6px;background:var(--dsw-alias-bg-layer-1,#fff);color:inherit;font:inherit;font-size:12px}',
+			'.dshdv-filter input{width:100%;box-sizing:border-box;height:26px;padding:0 22px 0 8px;border:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.1));border-radius:var(--dsw-radius-sm,6px);background:var(--dsw-alias-bg-layer-1,#fff);color:inherit;font:inherit;font-size:12px}',
 			'.dshdv-filter input:focus{outline:none;border-color:var(--dsw-alias-brand-primary,#3b6cf6)}',
-			'.dshdv-filterClear{position:absolute;right:2px;border:0;background:transparent;color:var(--dsw-alias-label-secondary,#5b636e);cursor:pointer;font-size:14px;line-height:1;padding:2px 5px;border-radius:4px}',
-			'.dshdv-btn{display:inline-flex;align-items:center;justify-content:center;gap:4px;height:26px;min-width:26px;padding:0 7px;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary,#5b636e);font:inherit;font-size:12px;cursor:pointer}',
-			'.dshdv-btn:hover{background:var(--dsw-alias-bg-layer-2,rgba(0,0,0,.05));color:var(--dsw-alias-label-primary,#1b1f24)}',
-			'.dshdv-btn[aria-pressed="true"]{background:var(--dsw-alias-bg-layer-2,rgba(0,0,0,.06));color:var(--dsw-alias-label-primary,#1b1f24)}',
+			'.dshdv-filterClear{position:absolute;right:2px;border:0;background:transparent;color:var(--dsw-alias-label-tertiary,#8b939e);cursor:pointer;font-size:14px;line-height:1;padding:2px 5px;border-radius:var(--dsw-radius-sm,6px)}',
+			/* The strip's icon button, copied from ui-sidebar-files FilesBody `.tool`:
+			 * a 28px box, `--dsw-radius-sm`, a 15px glyph, secondary ink that lifts to
+			 * primary over the shared interactive fill. */
+			'.dshdv-btn{display:inline-flex;flex:none;align-items:center;justify-content:center;width:28px;height:28px;padding:6px;border:0;border-radius:var(--dsw-radius-sm,6px);background:transparent;color:var(--dsw-alias-label-secondary,#5b636e);font:inherit;font-size:12px;line-height:1;cursor:pointer}',
+			'.dshdv-btn:hover{color:var(--dsw-alias-label-primary,#1b1f24);background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}',
+			'.dshdv-btn[aria-pressed="true"]{color:var(--dsw-alias-label-primary,#1b1f24);background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}',
 			'.dshdv-btn:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#3b6cf6);outline-offset:1px}',
-			'.dshdv-btn svg{display:block;width:14px;height:14px}',
+			'.dshdv-btn svg{display:block;width:15px;height:15px}',
 			'.dshdv-summary{display:inline-flex;align-items:center;gap:6px;color:var(--dsw-alias-label-secondary,#5b636e);font-size:12px;white-space:nowrap}',
+			/* The per-turn filter strip: only the session scope has turns, so this
+			 * row exists there and nowhere else. */
+			'.dshdv-turns{display:flex;align-items:center;gap:6px;flex:none;padding:6px 12px;overflow-x:auto;border-bottom:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.08))}',
+			'.dshdv-turn{display:inline-flex;flex:none;align-items:center;gap:5px;border:0;background:transparent;color:var(--dsw-alias-label-secondary,#5b636e);font:inherit;font-size:12px;line-height:18px;padding:3px 10px;border-radius:var(--dsw-radius-sm,6px);cursor:pointer;white-space:nowrap}',
+			'.dshdv-turn:hover{color:var(--dsw-alias-label-primary,#1b1f24);background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}',
+			'.dshdv-turn[aria-pressed="true"]{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06));color:var(--dsw-alias-label-primary,#1b1f24)}',
+			'.dshdv-turn:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#3b6cf6);outline-offset:1px}',
+			'.dshdv-turnCount{color:var(--dsw-alias-label-tertiary,#8b939e);font-variant-numeric:tabular-nums}',
+			/* The strip is a timeline on the left and an axis switch on the right; the
+			 * spacer keeps them apart however many turns there are. */
+			'.dshdv-turnsSpacer{flex:1 1 auto;min-width:8px}',
+			'.dshdv-modes{display:inline-flex;flex:none;gap:2px;padding:2px;border-radius:var(--dsw-radius-sm,6px);background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}',
+			'.dshdv-modes .dshdv-turn{padding:2px 8px}',
+			'.dshdv-modes .dshdv-turn[aria-pressed="true"]{background:var(--dsw-alias-bg-layer-1,#fff)}',
+			'.dshdv-turnTag{flex:none;color:var(--dsw-alias-label-tertiary,#8b939e);font-size:11px;font-variant-numeric:tabular-nums}',
 			'.dshdv-add{color:var(--dsw-alias-state-success-primary,#1a7f37)}',
 			'.dshdv-del{color:var(--dsw-alias-state-error-primary,#c0392b)}',
 			'.dshdv-main{display:flex;flex:1 1 auto;min-height:0}',
-			'.dshdv-list{flex:0 0 272px;min-width:180px;max-width:45%;display:flex;flex-direction:column;border-right:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.08));background:var(--dsw-alias-bg-layer-1,#fafbfc);overflow:hidden}',
-			'.dshdv-listBody{flex:1 1 auto;overflow:auto;padding:4px;scrollbar-gutter:stable}',
-			'.dshdv-row{display:flex;align-items:center;gap:6px;width:100%;box-sizing:border-box;padding:4px 8px;border:0;border-radius:6px;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}',
-			'.dshdv-row:hover{background:var(--dsw-alias-bg-layer-2,rgba(0,0,0,.05))}',
-			'.dshdv-row[aria-selected="true"]{background:var(--dsw-alias-bg-layer-2,rgba(0,0,0,.08))}',
+			'.dshdv-list{flex:0 0 272px;min-width:180px;max-width:45%;display:flex;flex-direction:column;border-right:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.08));background:var(--dsw-alias-bg-layer-1,#fafbfc);overflow:hidden}',
+			/* The tree's own scroller geometry (ui-sidebar-files FilesBody `.body`): a
+			 * 2px scrollbar offset, a stable gutter, and rows inset 8px from the pane
+			 * edge so the hover fill never touches the border. */
+			'.dshdv-listBody{flex:1 1 auto;overflow:auto;margin-right:2px;padding:8px 0 8px 8px;scrollbar-gutter:stable;contain:content}',
+			/* Row vocabulary copied from the shell's own lists — `ui-workspace`'s
+			 * Rows (`.sessionRow`), `ui-sidebar-files`' FilesBody (`.row`):
+			 * `--dsw-alias-label-primary` ink, `--dsw-radius-md`, and ONE
+			 * interactive fill (`--dsw-alias-interactive-bg-hover`) that hover and
+			 * selection share. The accent bar, brand tint and bold name this row
+			 * used to carry were this plugin's invention; inside the shell they read
+			 * as a foreign control, so they are gone. */
+			'.dshdv-row{display:flex;align-items:center;gap:6px;width:100%;box-sizing:border-box;padding:5px 8px;border:0;border-radius:var(--dsw-radius-md,12px);background:transparent;color:var(--dsw-alias-label-primary,#1b1f24);font:inherit;text-align:left;cursor:pointer;user-select:none}',
+			'.dshdv-row:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}',
+			'.dshdv-row[aria-selected="true"]{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}',
 			'.dshdv-row:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#3b6cf6);outline-offset:-2px}',
 			'.dshdv-chip{flex:none;width:14px;text-align:center;font-size:11px;font-weight:600;line-height:16px;border-radius:4px}',
 			'.dshdv-chip[data-status="added"],.dshdv-chip[data-status="untracked"]{color:var(--dsw-alias-state-success-primary,#1a7f37)}',
 			'.dshdv-chip[data-status="deleted"]{color:var(--dsw-alias-state-error-primary,#c0392b)}',
 			'.dshdv-chip[data-status="modified"],.dshdv-chip[data-status="renamed"],.dshdv-chip[data-status="copied"]{color:var(--dsw-alias-state-warn-primary,#9a6700)}',
 			'.dshdv-chip[data-status="conflicted"]{color:var(--dsw-alias-state-error-primary,#c0392b)}',
-			'.dshdv-chip[data-status="binary"],.dshdv-chip[data-status="oversized"],.dshdv-chip[data-status="directory"]{color:var(--dsw-alias-label-secondary,#5b636e)}',
+			'.dshdv-chip[data-status="binary"],.dshdv-chip[data-status="oversized"],.dshdv-chip[data-status="directory"]{color:var(--dsw-alias-label-tertiary,#8b939e)}',
 			'.dshdv-names{flex:1 1 auto;min-width:0;display:flex;flex-direction:column}',
 			'.dshdv-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px}',
-			'.dshdv-dirName{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--dsw-alias-label-secondary,#5b636e)}',
+			'.dshdv-dirName{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--dsw-alias-label-tertiary,#8b939e)}',
 			'.dshdv-counts{flex:none;display:inline-flex;gap:4px;font-size:11px;font-variant-numeric:tabular-nums}',
 			'.dshdv-body{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;overflow:hidden}',
-			'.dshdv-head{flex:none;display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.08));min-height:36px}',
+			'.dshdv-head{flex:none;display:flex;align-items:center;gap:8px;padding:0 8px 0 16px;border-bottom:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.08));height:38px;box-sizing:border-box}',
 			'.dshdv-headPath{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}',
 			'.dshdv-headTools{flex:none;display:inline-flex;gap:2px}',
 			'.dshdv-scroll{flex:1 1 auto;overflow:auto;background:var(--dsw-alias-bg-base,#fff)}',
-			'.dshdv-hunk{border-bottom:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.06))}',
-			'.dshdv-hunkHeader{padding:3px 12px;background:var(--dsw-alias-bg-layer-2,rgba(0,0,0,.04));color:var(--dsw-alias-label-secondary,#5b636e);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;position:sticky;top:0}',
+			/* A comparison that is being replaced stays legible but visibly stale:
+			 * dimming says "this is not the file you just clicked" without taking
+			 * the picture away for the tenth of a second the read takes. */
+			'.dshdv-scroll.dshdv-busy{opacity:.45;transition:opacity .12s linear}',
+			'.dshdv-headBusy{flex:none;font-size:12px;color:var(--dsw-alias-label-tertiary,#8b939e)}',
+			'.dshdv-hunk{border-bottom:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.06))}',
+			'.dshdv-hunkHeader{padding:3px 12px;background:var(--dsw-alias-bg-layer-2,rgba(0,0,0,.04));color:var(--dsw-alias-label-tertiary,#8b939e);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;position:sticky;top:0}',
 			'.dshdv-line{display:flex;align-items:flex-start;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:19px;white-space:pre}',
 			'.dshdv-line[data-kind="add"]{background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#1a7f37) 10%,transparent)}',
 			'.dshdv-line[data-kind="del"]{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#c0392b) 10%,transparent)}',
-			'.dshdv-no{flex:none;width:48px;padding:0 8px;text-align:right;color:var(--dsw-alias-label-secondary,#8b939e);user-select:none;font-variant-numeric:tabular-nums}',
-			'.dshdv-sign{flex:none;width:14px;text-align:center;color:var(--dsw-alias-label-secondary,#8b939e);user-select:none}',
+			'.dshdv-no{flex:none;width:48px;padding:0 8px;text-align:right;color:var(--dsw-alias-label-tertiary,#8b939e);user-select:none;font-variant-numeric:tabular-nums}',
+			'.dshdv-sign{flex:none;width:14px;text-align:center;color:var(--dsw-alias-label-tertiary,#8b939e);user-select:none}',
 			'.dshdv-text{flex:1 1 auto;min-width:0;padding-right:16px}',
 			'.dshdv-wrap .dshdv-line{white-space:pre-wrap;word-break:break-word}',
 			'.dshdv-wrap .dshdv-text{white-space:pre-wrap}',
 			'.dshdv-split{display:flex;align-items:flex-start}',
-			'.dshdv-splitCell{flex:1 1 50%;min-width:0;display:flex;align-items:flex-start;border-right:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.06))}',
+			'.dshdv-splitCell{flex:1 1 50%;min-width:0;display:flex;align-items:flex-start;border-right:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.06))}',
 			'.dshdv-splitCell[data-kind="add"]{background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#1a7f37) 10%,transparent)}',
 			'.dshdv-splitCell[data-kind="del"]{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#c0392b) 10%,transparent)}',
 			'.dshdv-splitCell[data-empty="true"]{background:var(--dsw-alias-bg-layer-2,rgba(0,0,0,.02))}',
-			'.dshdv-status{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;height:100%;padding:24px;text-align:center;color:var(--dsw-alias-label-secondary,#5b636e);font-size:12.5px}',
+			'.dshdv-status{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;height:100%;padding:24px;text-align:center;color:var(--dsw-alias-label-secondary,#5b636e);font-size:var(--dsh-content-font-size-secondary,13px)}',
 			'.dshdv-status p{margin:0;max-width:44ch;line-height:1.6}',
-			'.dshdv-note{padding:8px 12px;background:var(--dsw-alias-bg-layer-2,rgba(0,0,0,.03));color:var(--dsw-alias-label-secondary,#5b636e);font-size:12px;border-bottom:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.06))}',
+			'.dshdv-note{padding:6px 12px;background:var(--dsw-alias-bg-layer-2,rgba(0,0,0,.03));color:var(--dsw-alias-label-secondary,#5b636e);font-size:12px;border-bottom:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.06))}',
 			'.dshdv-sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}',
 			'@media (max-width: 720px){.dshdv-list{flex-basis:200px}}',
 		];
@@ -290,6 +377,8 @@ window.__ModuleLoader__.load({
 		var ICON_SPLIT = [['M2.5 2.5h11v11h-11z'], ['M8 2.5v11']];
 		var ICON_COPY = [['M5.5 5.5h7v7h-7z'], ['M3.5 10.5v-7h7']];
 		var ICON_EMPTY = [['M2.5 3.5h11v9h-11z'], ['M5 6.5h6'], ['M5 9.5h4']];
+		/** A commit: a node on a line, the shape the shell's own git affordances use. */
+		var ICON_COMMIT = [['M8 2.5v11'], ['M5.2 8a2.8 2.8 0 1 0 5.6 0 2.8 2.8 0 1 0-5.6 0']];
 
 		/* ------------------------------------------------------------------ *
 		 * Small helpers
@@ -358,6 +447,51 @@ window.__ModuleLoader__.load({
 		 * cannot overwrite the one on screen.
 		 * ------------------------------------------------------------------ */
 
+		/**
+		 * Whether two values are indistinguishable to the view.
+		 *
+		 * Arrays compare by length and element identity, plain objects by their
+		 * scalar fields (`totals`); anything else by `Object.is`. This is not a
+		 * deep equality in general — it is exactly the depth this state has.
+		 *
+		 * @param left - the value already held.
+		 * @param right - the value a patch would install.
+		 * @returns whether installing `right` would be invisible.
+		 */
+		function sameValue(left, right) {
+			if (Object.is(left, right)) return true;
+			if (Array.isArray(left) && Array.isArray(right)) {
+				if (left.length !== right.length) return false;
+				for (var at = 0; at < left.length; at += 1) if (!Object.is(left[at], right[at])) return false;
+				return true;
+			}
+			if (left !== null && right !== null && typeof left === 'object' && typeof right === 'object') {
+				var leftKeys = Object.keys(left);
+				var rightKeys = Object.keys(right);
+				if (leftKeys.length !== rightKeys.length) return false;
+				for (var index = 0; index < leftKeys.length; index += 1) {
+					if (!Object.is(left[leftKeys[index]], right[leftKeys[index]])) return false;
+				}
+				return true;
+			}
+			return false;
+		}
+
+		/**
+		 * Whether a patch would change anything on screen.
+		 *
+		 * @param current - the state in force.
+		 * @param next - the fields a patch wants to write.
+		 * @returns true when every field already holds that value.
+		 */
+		function sameState(current, next) {
+			var keys = Object.keys(next);
+			for (var at = 0; at < keys.length; at += 1) {
+				if (!sameValue(current[keys[at]], next[keys[at]])) return false;
+			}
+			return true;
+		}
+
 		/** The state one Session's view starts from. */
 		function initialState() {
 			return {
@@ -367,14 +501,209 @@ window.__ModuleLoader__.load({
 				cwd: null,
 				turn: undefined,
 				turns: [],
+				/** The turn the session scope is narrowed to; null is every turn. */
+				viewTurn: null,
+				/** Which axis the session scope shows: `delta` (a turn's changes) or `state`. */
+				viewMode: readPreference(MODE_KEY, DELTA_MODE) === STATE_MODE ? STATE_MODE : DELTA_MODE,
+				/** The checkpoint button: idle, armed, in flight, or reporting a result. */
+				commitPhase: 'idle',
+				/** What the last checkpoint answered — a copy key plus its values. */
+				commitNote: null,
 				totals: { added: 0, deleted: 0 },
 				phase: 'idle',
 				error: null,
 				selected: null,
+				/** Fingerprint of the file the live comparison belongs to. */
+				selectedPrint: undefined,
 				diff: null,
+				/** The path the held comparison was read for; undefined when none is held. */
+				diffPath: undefined,
 				diffPhase: 'idle',
 				diffError: null,
 			};
+		}
+
+		/**
+		 * What a comparison depends on: the path, its status, its counts, and the
+		 * turns that changed it.
+		 *
+		 * The counts are the recorder's or git's own reading of how much the
+		 * file changed, so they stand in for "same content, same picture" at a
+		 * fraction of the cost of re-reading and re-diffing the file. The
+		 * per-turn list belongs in here too: a turn's numbers can be
+		 * re-announced while the aggregate stays exactly where it was.
+		 */
+		function fingerprint(file) {
+			if (file === undefined) return undefined;
+			var turns = Array.isArray(file.sources)
+				? file.sources.map(function (source) {
+					return [source.turn, source.seq, source.index, source.status, source.added, source.deleted].join(':');
+				}).join(',')
+				: String(file.changedTurns === undefined ? '' : file.changedTurns);
+			return [
+				file.path, file.status, file.added, file.deleted,
+				file.at === undefined ? '' : `${file.at.turn}:${file.at.seq}:${file.at.index}`,
+				turns,
+			].join('\u0000');
+		}
+
+		/**
+		 * The files one turn's view lists.
+		 *
+		 * `null` is the aggregate view: every changed file, compared at its
+		 * newest turn. A turn number narrows the list to the files that turn
+		 * changed — a file edited in three turns appears in all three, carrying
+		 * that turn's own counts.
+		 */
+		function filesForTurn(files, viewTurn) {
+			if (viewTurn === null || viewTurn === undefined) return files;
+			return files.filter(function (file) {
+				return turnSource(file, viewTurn) !== undefined;
+			});
+		}
+
+		/**
+		 * One file's record for one turn.
+		 *
+		 * The Host sends a `sources` entry per turn that changed a path; a path
+		 * the change recorder never summarized (a log-derived entry) has a turn
+		 * in `changedTurns` and no coordinate, which answers with a stand-in so
+		 * callers can treat both shapes the same.
+		 */
+		function turnSource(file, turn) {
+			var sources = Array.isArray(file.sources) ? file.sources : [];
+			for (var at = 0; at < sources.length; at += 1) {
+				if (sources[at].turn === turn) return sources[at];
+			}
+			var changed = Array.isArray(file.changedTurns) ? file.changedTurns : [];
+			if (changed.indexOf(turn) === -1) return undefined;
+			return { turn: turn, derived: true, status: file.status, added: 0, deleted: 0 };
+		}
+
+		/**
+		 * The coordinate one file's comparison must be read at.
+		 *
+		 * The aggregate view uses the file's newest turn (`at`); a turn view uses
+		 * that turn's own coordinate. `undefined` means the Host kept no
+		 * comparison for this file in this turn.
+		 */
+		function coordinateFor(file, viewTurn) {
+			if (viewTurn === null || viewTurn === undefined) return file.at;
+			var source = turnSource(file, viewTurn);
+			if (source === undefined || typeof source.seq !== 'number' || typeof source.index !== 'number') return undefined;
+			return { turn: source.turn, seq: source.seq, index: source.index };
+		}
+
+		/** The status letter and counts one view shows for a file. */
+		function factsFor(file, viewTurn) {
+			var source = viewTurn === null || viewTurn === undefined ? undefined : turnSource(file, viewTurn);
+			if (source === undefined) return { status: file.status, added: file.added, deleted: file.deleted };
+			return { status: source.status, added: source.added, deleted: source.deleted };
+		}
+
+		/**
+		 * One file's newest change at or before a turn.
+		 *
+		 * The Host sends a file's whole history in `sources` (oldest first), so this
+		 * is the fold that turns a list of changes into a state: whatever happened
+		 * last is what the file looks like now. A log-derived entry has turns but no
+		 * coordinates, and answers with the same shape so callers need no special
+		 * case.
+		 *
+		 * @param file - one listed file.
+		 * @param turn - the inclusive bound.
+		 * @returns the source, or undefined when the file had not changed yet.
+		 */
+		function lastSourceUpTo(file, turn) {
+			var sources = Array.isArray(file.sources) ? file.sources : [];
+			var found;
+			for (var at = 0; at < sources.length; at += 1) {
+				if (sources[at].turn <= turn) found = sources[at];
+			}
+			if (found !== undefined) return found;
+			var changed = Array.isArray(file.changedTurns) ? file.changedTurns : [];
+			var newest = changed.length === 0 ? undefined : changed[changed.length - 1];
+			if (newest === undefined || newest > turn) return undefined;
+			return { turn: newest, status: file.status, added: 0, deleted: 0, derived: true };
+		}
+
+		/**
+		 * The files that exist once a turn is over, and how many were deleted by it.
+		 *
+		 * A file deleted at or before the bound is not part of the state — it is a
+		 * change that happened, not a file that is there — so it leaves the list and
+		 * is counted instead. A file deleted and later re-added comes back, because
+		 * the fold only ever asks what happened LAST.
+		 *
+		 * @param files - every changed file the Host listed.
+		 * @param turn - the inclusive bound.
+		 * @returns `{ rows: [{ file, source }], deleted }`.
+		 */
+		function stateAt(files, turn) {
+			var rows = [];
+			var deleted = 0;
+			files.forEach(function (file) {
+				var last = lastSourceUpTo(file, turn);
+				if (last === undefined) return;
+				if (last.status === 'deleted') {
+					deleted += 1;
+					return;
+				}
+				rows.push({ file: file, source: last });
+			});
+			return { rows: rows, deleted: deleted };
+		}
+
+		/**
+		 * The turn the current view is bounded by.
+		 *
+		 * A chosen turn is the bound; with none chosen the newest turn is, which is
+		 * what makes the state view meaningful before a reader picks anything.
+		 */
+		function boundTurn(state) {
+			if (state.viewTurn !== null && state.viewTurn !== undefined) return state.viewTurn;
+			var turns = Array.isArray(state.turns) ? state.turns : [];
+			return turns.length > 0 ? turns[0] : 0;
+		}
+
+		/** The files the current view lists. */
+		function visibleFiles(files, state) {
+			if (state.scope !== SESSION) return files;
+			if (state.viewMode === STATE_MODE) {
+				return stateAt(files, boundTurn(state)).rows.map(function (row) { return row.file; });
+			}
+			return filesForTurn(files, state.viewTurn);
+		}
+
+		/** The status letter and counts the current view shows for one file. */
+		function factsForView(file, state) {
+			if (state.scope === SESSION && state.viewMode === STATE_MODE) {
+				var last = lastSourceUpTo(file, boundTurn(state));
+				if (last !== undefined) return { status: last.status, added: last.added, deleted: last.deleted };
+			}
+			return factsFor(file, state.viewTurn);
+		}
+
+		/** The coordinate the current view must read one file's comparison at. */
+		function coordinateForView(file, state) {
+			if (state.scope !== SESSION) return undefined;
+			if (state.viewMode === STATE_MODE) {
+				var last = lastSourceUpTo(file, boundTurn(state));
+				if (last === undefined || typeof last.seq !== 'number' || typeof last.index !== 'number') return undefined;
+				return { turn: last.turn, seq: last.seq, index: last.index };
+			}
+			return state.viewTurn === null || state.viewTurn === undefined ? file.at : coordinateFor(file, state.viewTurn);
+		}
+
+		/** The turn whose change the current view shows for one file, when it has one. */
+		function changeTurnFor(file, state) {
+			if (state.scope !== SESSION) return undefined;
+			if (state.viewMode === STATE_MODE) {
+				var last = lastSourceUpTo(file, boundTurn(state));
+				return last === undefined ? undefined : last.turn;
+			}
+			if (state.viewTurn !== null && state.viewTurn !== undefined) return state.viewTurn;
+			return file.at === undefined ? undefined : file.at.turn;
 		}
 
 		function createController() {
@@ -397,7 +726,18 @@ window.__ModuleLoader__.load({
 				});
 			}
 
+			/**
+			 * Publish a state change — or publish nothing at all.
+			 *
+			 * Every patch wakes the view, so a patch that changes no value the view
+			 * can see must not wake it: that is the difference between a refresh
+			 * that costs one HTTP read and a refresh that additionally reconciles
+			 * the whole panel. Arrays compare by length and element identity (the
+			 * list fold keeps unchanged entries as the same objects), so an
+			 * identical list is recognized as identical.
+			 */
 			function patch(next) {
+				if (sameState(state, next)) return;
 				state = Object.assign({}, state, next);
 				emit();
 			}
@@ -411,9 +751,44 @@ window.__ModuleLoader__.load({
 			 */
 			function emptyList() {
 				return {
-					files: [], selected: null, diff: null, diffPhase: 'idle', diffError: null,
+					files: [], selected: null, selectedPrint: undefined, diff: null, diffPath: undefined,
+					diffPhase: 'idle', diffError: null,
 					repo: null, cwd: null, turn: undefined, turns: [], totals: { added: 0, deleted: 0 },
 				};
+			}
+
+
+			/**
+			 * Fold a freshly read list into the one on screen.
+			 *
+			 * An entry that is identical to its predecessor keeps the PRECEDING
+			 * object, so the rows a reader is looking at are not recreated by a
+			 * refresh that found nothing new — React then re-renders the pane with
+			 * the same elements, which is what makes a silent refresh actually
+			 * silent instead of a repaint every few seconds.
+			 *
+			 * @param previous - the files currently held.
+			 * @param incoming - the files the Host just answered with.
+			 * @returns `{ files, changed }`.
+			 */
+			function mergeFiles(previous, incoming) {
+				var byPath = new Map();
+				for (var at = 0; at < previous.length; at += 1) byPath.set(previous[at].path, previous[at]);
+				var files = [];
+				var changed = previous.length !== incoming.length;
+				for (var index = 0; index < incoming.length; index += 1) {
+					var next = incoming[index];
+					var before = byPath.get(next.path);
+					if (before !== undefined && fingerprint(before) === fingerprint(next)) {
+						/* Same entry, same numbers: keep the object the list already has. */
+						files.push(before);
+						if (previous[index] !== before) changed = true;
+						continue;
+					}
+					files.push(next);
+					changed = true;
+				}
+				return { files: files, changed: changed };
 			}
 
 			/** Read one failure's message key from the route's error envelope. */
@@ -470,21 +845,83 @@ window.__ModuleLoader__.load({
 				setScope: function (scope, sessionId) {
 					if (scope === state.scope) return;
 					writePreference(SCOPE_KEY, scope);
-					state = Object.assign({}, state, { scope: scope, selected: null, diff: null, diffPhase: 'idle', files: [], error: null });
+					state = Object.assign({}, state, {
+						scope: scope, selected: null, selectedPrint: undefined,
+						diff: null, diffPath: undefined, diffPhase: 'idle', files: [], error: null,
+						// Turns belong to the session scope; the git scope has none.
+						viewTurn: null, turns: [],
+					});
 					emit();
 					return controller.load(sessionId);
 				},
 
-				/** Read the file list of the current scope. */
+				/**
+				 * Narrow the session scope to one turn, or widen it back to all of them.
+				 *
+				 * The turn's files come from the list already in hand (each entry
+				 * carries its own per-turn coordinates and counts), so switching is
+				 * instant: one comparison read for the turn's first file, and nothing
+				 * else. `null` restores the aggregate view.
+				 */
+				setTurn: function (sessionId, turn) {
+					if (turn === state.viewTurn) return undefined;
+					var next = Object.assign({}, state, { turns: state.turns, viewTurn: turn });
+					var pool = visibleFiles(state.files, next);
+					var selected = pool.length > 0 ? pool[0].path : null;
+					patch({
+						viewTurn: turn,
+						selected: selected,
+						selectedPrint: undefined,
+						diff: null,
+						diffPath: undefined,
+						diffPhase: 'idle',
+						diffError: null,
+					});
+					if (selected === null) return undefined;
+					return controller.select(sessionId, selected);
+				},
+
+				/**
+				 * Switch the session scope between "what this turn did" and "what exists
+				 * after it".
+				 *
+				 * Both axes are computed from the same list, so the switch costs one
+				 * comparison read for whatever becomes selected — and it must drop the
+				 * held comparison, because the same file is now addressed at a different
+				 * turn.
+				 */
+				setMode: function (sessionId, mode) {
+					if (mode === state.viewMode) return undefined;
+					writePreference(MODE_KEY, mode);
+					var next = Object.assign({}, state, { viewMode: mode });
+					var pool = visibleFiles(state.files, next);
+					var selected = pool.length > 0 ? pool[0].path : null;
+					patch({
+						viewMode: mode,
+						selected: selected,
+						selectedPrint: undefined,
+						diff: null,
+						diffPath: undefined,
+						diffPhase: 'idle',
+						diffError: null,
+					});
+					if (selected === null) return undefined;
+					return controller.select(sessionId, selected);
+				},
+
 				/**
 				 * Read the list of the current scope, then the comparison of
 				 * whatever file ends up selected.
 				 *
-				 * A silent read leaves the current phase alone (the auto-refresh
-				 * tick must not flash a spinner over a list already on screen); an
-				 * interactive one takes the loading phase, which is also what makes
-				 * a remount honest: the view never renders a stale list while a
-				 * fresh answer is in flight.
+				 * The two read modes differ in what the reader is allowed to see:
+				 *
+				 * - **interactive** (mount, scope switch, the refresh button) owns
+				 *   the loading phase, so a remount never shows a stale tree;
+				 * - **silent** (the auto-refresh tick) changes *nothing* until a
+				 *   fresh answer is in hand. Its whole point is that the pane a
+				 *   reader is looking at does not blink every few seconds, so the
+				 *   rows are swapped only for the entries that actually differ and
+				 *   the comparison is re-read only when the file's own numbers moved.
 				 */
 				load: async function (sessionId, options) {
 					var silent = options !== undefined && options.silent === true;
@@ -506,11 +943,30 @@ window.__ModuleLoader__.load({
 						patch(Object.assign({ phase: 'error', error: result.failed }, emptyList()));
 						return;
 					}
-					var value = result.value;
-					var files = Array.isArray(value.files) ? value.files : [];
-					var keep = state.selected !== null && files.some(function (file) { return file.path === state.selected; });
-					var selected = keep ? state.selected : (files.length > 0 ? files[0].path : null);
+					var incoming = mergeFiles(state.files, Array.isArray(result.value.files) ? result.value.files : []);
+					var files = incoming.files;
+					var turns = Array.isArray(result.value.turns) ? result.value.turns : [];
+					/* A turn the answer no longer lists cannot stay selected: the
+					 * Session may have been forked, or the recorder's record dropped.
+					 * An answer with no turns at all (an error page, an empty scope)
+					 * leaves the choice alone rather than discarding it. */
+					var viewTurn = state.viewTurn !== null && turns.length > 0 && turns.indexOf(state.viewTurn) === -1
+						? null
+						: state.viewTurn;
+					var pool = visibleFiles(files, { scope: state.scope, viewMode: state.viewMode, viewTurn: viewTurn, turns: turns });
+					var keep = state.selected !== null && pool.some(function (file) { return file.path === state.selected; });
+					var selected = keep ? state.selected : (pool.length > 0 ? pool[0].path : null);
 					var sameFile = selected !== null && selected === state.selected;
+					/* A comparison survives a refresh exactly while the file's own
+					 * numbers — and the turn being viewed — do. Anything else means the
+					 * comparison on screen describes a different content. */
+					var currentPrint = selected === null ? undefined : fingerprint(files.find(function (file) { return file.path === selected; }));
+					var holdsComparison = sameFile && currentPrint !== undefined && currentPrint === state.selectedPrint;
+					/* A read is owed whenever the comparison on screen is not the one this
+					 * list describes — including every interactive read, whose whole job
+					 * is to present the current tree. */
+					var mustRead = selected !== null && (!holdsComparison || !silent);
+					var value = result.value;
 					patch({
 						phase: 'ready',
 						error: null,
@@ -518,61 +974,160 @@ window.__ModuleLoader__.load({
 						repo: value.repo === undefined ? null : value.repo,
 						cwd: value.cwd === undefined ? null : value.cwd,
 						turn: value.turn,
-						turns: Array.isArray(value.turns) ? value.turns : [],
+						turns,
+						viewTurn,
 						totals: { added: value.added || 0, deleted: value.deleted || 0 },
-						selected: selected,
-						/* A live comparison of the same file is kept; anything else is
-						 * dropped and re-read, because a diff is a snapshot of a moving
-						 * tree and the list just said it moved. */
-						diff: sameFile ? state.diff : null,
-						diffPhase: sameFile ? state.diffPhase : 'loading',
+						/* Selection belongs to `select`, which owns the comparison too:
+						 * writing it here would make `select`'s own dedupe see the file as
+						 * already chosen and skip the read it was called to perform. */
+						diff: holdsComparison ? state.diff : null,
+						diffPhase: holdsComparison ? state.diffPhase : 'idle',
 					});
-					if (selected !== null && !silent) await controller.select(sessionId, selected);
+					if (mustRead) {
+						await controller.select(sessionId, selected);
+					} else if (!sameFile) {
+						patch({ selected: selected, selectedPrint: currentPrint });
+					}
 				},
 
-				/** Read one file's comparison. */
+				/**
+				 * Read one file's comparison. */
 				select: async function (sessionId, path) {
+					/* Idempotent for the cases where a read is pointless: the file is
+					 * already chosen AND a comparison for it is held or on its way. It
+					 * must NOT short-circuit when the held comparison was invalidated
+					 * (idle) or failed (error) — those are exactly the re-reads. */
+					if (state.selected === path
+						&& (state.diffPhase === 'ready' || state.diffPhase === 'norecord' || state.diffPhase === 'loading')) return;
 					var file = state.files.find(function (entry) { return entry.path === path; });
 					if (file === undefined) return;
 					var current = (diffGeneration += 1);
 					var started = epoch;
 					var stale = function () { return current !== diffGeneration || started !== epoch; };
-					/* A path the Session's log names but no summary covers has no
-					 * stored comparison: reading one would 404 and read as a
-					 * failure, when the honest answer is that the Host kept none. */
-					if (state.scope === SESSION && file.at === undefined) {
-						patch({ selected: path, diff: null, diffPhase: 'norecord', diffError: null });
+					/* The comparison belongs to a TURN in the session scope: the newest
+					 * turn in the aggregate view, the chosen one in a turn view, and the
+					 * file's own last change up to the bound in the state view. A path
+					 * with no coordinate (a log-derived entry, or a file no relevant turn
+					 * changed) has no stored comparison: reading one would 404 and read as
+					 * a failure, when the honest answer is that none was kept. */
+					var coordinate = coordinateForView(file, state);
+					if (state.scope === SESSION && coordinate === undefined) {
+						patch({ selected: path, selectedPrint: fingerprint(file), diff: null, diffPath: undefined, diffPhase: 'norecord', diffError: null });
 						return;
 					}
-					patch({ selected: path, diff: null, diffPhase: 'loading', diffError: null });
-					var at = state.scope === SESSION ? file.at : undefined;
+					/* ONE patch for the whole selection: two would render the list and
+					 * the comparison twice for a single click. The previously held
+					 * comparison stays in state under its own path so the pane can keep
+					 * drawing it (dimmed) instead of blanking between files. */
+					patch({
+						selected: path,
+						selectedPrint: fingerprint(file),
+						diffPhase: 'loading',
+						diffError: null,
+					});
 					var result;
 					try {
-						result = await readJson(fileUrl(state.scope, sessionId, path, at), undefined);
+						result = await readJson(fileUrl(state.scope, sessionId, path, coordinate), undefined);
 					} catch (error) {
 						if (stale()) return;
-						patch({ diffPhase: 'error', diffError: 'error.generic' });
+						patch({ diffPhase: 'error', diffError: 'error.generic', diff: null, diffPath: undefined });
 						return;
 					}
 					if (stale()) return;
 					if (result.failed !== undefined) {
-						patch({ diffPhase: 'error', diffError: result.failed });
+						patch({ diffPhase: 'error', diffError: result.failed, diff: null, diffPath: undefined });
 						return;
 					}
-					patch({ diffPhase: 'ready', diff: result.value, diffError: null });
+					patch({ diffPhase: 'ready', diffPath: path, diff: result.value, diffError: null });
 				},
 
-				/** Re-read list and comparison together. */
+				/**
+				 * Re-read the list; re-read the comparison only when it moved.
+				 *
+				 * The silent load already decided that: it kept the comparison when
+				 * the selected file's numbers were unchanged, and dropped it when they
+				 * were not. Re-selecting unconditionally here would undo that decision
+				 * and put the pane back to blinking once per tick.
+				 */
 				refresh: async function (sessionId) {
 					await controller.load(sessionId, { silent: true });
-					if (state.selected !== null && state.diffPhase !== 'error') await controller.select(sessionId, state.selected);
+					if (state.selected !== null && state.diffPhase === 'idle') {
+						await controller.select(sessionId, state.selected);
+					}
 				},
+
+				/** Arm the checkpoint button: the next press commits. */
+				armCommit: function () {
+					patch({ commitPhase: 'confirm', commitNote: null });
+				},
+
+				/** Disarm it — the reader moved on without pressing again. */
+				cancelCommit: function () {
+					if (state.commitPhase !== 'confirm') return;
+					patch({ commitPhase: 'idle' });
+				},
+
+				/**
+				 * Commit the working tree, then re-read the list.
+				 *
+				 * This is the plugin's only write, and the only place a scope can
+				 * change because of something the view did: the working-tree scope is
+				 * "diff against HEAD", and a commit moves HEAD. Re-reading afterwards
+				 * is therefore part of the operation, not a courtesy — without it the
+				 * pane would keep showing changes that are now committed.
+				 */
+				commit: async function (sessionId, turn) {
+					if (state.commitPhase === 'busy') return;
+					patch({ commitPhase: 'busy', commitNote: null });
+					var payload = { sessionId: sessionId };
+					if (typeof turn === 'number') payload.turn = turn;
+					var answer;
+					try {
+						var response = await fetch(COMMIT_URL, {
+							method: 'POST',
+							credentials: 'same-origin',
+							headers: { 'content-type': 'application/json' },
+							body: JSON.stringify(payload),
+						});
+						var body = null;
+						try {
+							body = await response.json();
+						} catch (error) {
+							body = null;
+						}
+						answer = { ok: response.ok && body !== null && body.ok === true, status: response.status, body: body };
+					} catch (error) {
+						answer = { ok: false, status: 0, body: null };
+					}
+					if (answer.ok !== true) {
+						var detail = answer.body !== null && answer.body !== undefined && answer.body.error !== undefined
+							? String(answer.body.error.message ?? '')
+							: '';
+						patch({ commitPhase: 'error', commitNote: { key: 'commit.failed', values: { detail: detail } } });
+						return;
+					}
+					var result = answer.body;
+					patch({
+						commitPhase: 'done',
+						commitNote: result.committed === true
+							? { key: 'commit.done', values: { revision: String(result.revision ?? '') } }
+							: { key: 'commit.clean', values: {} },
+					});
+					await controller.load(sessionId);
+				},
+
 				/** Forget the mounted session's data when the view unmounts. */
 				reset: function () {
 					generation += 1;
 					diffGeneration += 1;
 					epoch += 1;
-					state = Object.assign({}, state, { files: [], selected: null, diff: null, phase: 'idle', diffPhase: 'idle', error: null, diffError: null });
+					state = Object.assign({}, state, {
+						files: [], selected: null, selectedPrint: undefined, diff: null, diffPath: undefined,
+						phase: 'idle', diffPhase: 'idle', error: null, diffError: null,
+						// An armed button must not survive a remount: the reader who armed
+						// it is gone, and the next press would commit without a confirm.
+						commitPhase: 'idle', commitNote: null,
+					});
 					emit();
 				},
 			};
@@ -654,37 +1209,75 @@ window.__ModuleLoader__.load({
 		 * Components
 		 * ------------------------------------------------------------------ */
 
-		/** One row of the file list. */
-		function FileRow(props) {
+		/**
+		 * One row of the file list.
+		 *
+		 * Memoized, and the memo is load-bearing rather than a micro-optimization:
+		 * a list of a few hundred changed files re-rendered on every state patch
+		 * (selection, refresh tick, diff arrival) is what made clicking a file feel
+		 * heavy. The parent hands each row a primitive path and stable callbacks,
+		 * and the list fold keeps unchanged entries as the same objects, so an
+		 * unrelated patch now re-renders exactly the two rows whose selection
+		 * flipped.
+		 */
+		var FileRow = React.memo(function FileRow(props) {
 			var file = props.file;
 			var parts = splitPath(file.display || file.path);
-			var letter = STATUS_LETTER[file.status] === undefined ? 'M' : STATUS_LETTER[file.status];
-			var title = statusLabel(props.t, file.status)
+			var letter = STATUS_LETTER[props.status] === undefined ? 'M' : STATUS_LETTER[props.status];
+			var title = statusLabel(props.t, props.status)
 				+ (file.originalPath === undefined ? '' : ' ← ' + file.originalPath)
 				+ (Array.isArray(file.changedTurns) && file.changedTurns.length > 0 ? '  ·  T' + file.changedTurns.join(', T') : '');
+			var path = file.path;
 			return h('button', {
 				type: 'button',
 				role: 'option',
 				className: 'dshdv-row',
-				'data-path': file.path,
+				'data-path': path,
 				'aria-selected': props.selected,
 				title: title,
-				onClick: props.onSelect,
+				onClick: function () { props.onSelect(path); },
 			},
-				h('span', { className: 'dshdv-chip', 'data-status': file.status, 'aria-hidden': 'true' }, letter),
+				h('span', { className: 'dshdv-chip', 'data-status': props.status, 'aria-hidden': 'true' }, letter),
 				h('span', { className: 'dshdv-names' },
 					h('span', { className: 'dshdv-name' }, parts.name),
 					parts.dir === '' ? null : h('span', { className: 'dshdv-dirName' }, parts.dir)),
+				props.turnTag === undefined ? null : h('span', { className: 'dshdv-turnTag' }, props.turnTag),
 				h('span', { className: 'dshdv-counts' },
-					file.added > 0 ? h('span', { className: 'dshdv-add' }, '+' + file.added) : null,
-					file.deleted > 0 ? h('span', { className: 'dshdv-del' }, '−' + file.deleted) : null));
-		}
+					props.added > 0 ? h('span', { className: 'dshdv-add' }, '+' + props.added) : null,
+					props.deleted > 0 ? h('span', { className: 'dshdv-del' }, '−' + props.deleted) : null));
+		}, function sameRow(previous, next) {
+			/* `file` keeps its identity across a silent refresh (see mergeFiles), so
+			 * this comparison is what makes an unchanged row cost nothing at all.
+			 * The status, counts and turn tag are separate props because an axis
+			 * shows a file's numbers FOR A TURN, not its newest ones. */
+			return previous.file === next.file
+				&& previous.selected === next.selected
+				&& previous.status === next.status
+				&& previous.added === next.added
+				&& previous.deleted === next.deleted
+				&& previous.turnTag === next.turnTag
+				&& previous.t === next.t;
+		});
 
-		/** The comparison body: hunks, their notes, or the state that stands in for them. */
-		function DiffBody(props) {
+		/**
+		 * The comparison body: hunks, their notes, or the state that stands in for them.
+		 *
+		 * Memoized on the values it actually draws, not on the state object it is
+		 * handed — every patch (a refresh tick, the copy acknowledgement, a filter
+		 * keystroke) hands it a NEW object, and a diff is the largest subtree in
+		 * this view. Without this the whole comparison is reconciled on every tick
+		 * even when every value is identical, which is what a reader feels as
+		 * stutter once a big file is on screen.
+		 */
+		var DiffBody = React.memo(function DiffBody(props) {
 			var state = props.state;
 			var t = props.t;
-			if (state.diffPhase === 'loading') {
+			/* Loading stands in only when there is nothing to stand in FOR. A
+			 * comparison already held — the file being re-read after its numbers
+			 * moved, or the previous file's while the next one is in flight — stays
+			 * on screen, marked busy rather than blanked, so clicking a row never
+			 * makes the pane flash through an empty state. */
+			if (state.diffPhase === 'loading' && state.diff === null) {
 				return h('div', { className: 'dshdv-status', role: 'status' }, h('p', null, t('diff.loading')));
 			}
 			if (state.diffPhase === 'norecord') {
@@ -721,8 +1314,29 @@ window.__ModuleLoader__.load({
 					? h(SplitHunk, { key: index, hunk: hunk, wrap: props.wrap })
 					: h(UnifiedHunk, { key: index, hunk: hunk, wrap: props.wrap }));
 			});
-			return h('div', { className: 'dshdv-scroll' + (props.wrap ? ' dshdv-wrap' : ''), 'data-diff-view': props.split && !single ? 'split' : 'unified' }, rows);
-		}
+			var busy = state.diffPhase === 'loading';
+			var scrollClass = 'dshdv-scroll'
+				+ (props.wrap ? ' dshdv-wrap' : '')
+				+ (busy ? ' dshdv-busy' : '');
+			return h('div', {
+				className: scrollClass,
+				'data-diff-view': props.split && !single ? 'split' : 'unified',
+				'data-diff-busy': busy ? '' : undefined,
+				'aria-busy': busy ? 'true' : undefined,
+			}, rows);
+		}, function sameComparison(previous, next) {
+			/* Exactly the inputs DiffBody reads — and they live on `state`, which is
+			 * a fresh object on every patch and must never take part in this
+			 * comparison itself. Comparing a prop that does not exist (`diff`) once
+			 * let this bail out forever: the pane kept showing the previous
+			 * comparison whenever the new one arrived in the same phase. */
+			return previous.state.diff === next.state.diff
+				&& previous.state.diffPhase === next.state.diffPhase
+				&& previous.state.diffError === next.state.diffError
+				&& previous.wrap === next.wrap
+				&& previous.split === next.split
+				&& previous.t === next.t;
+		});
 
 		/** Whether a comparison only adds or only removes lines. */
 		function isOneSided(hunks) {
@@ -737,8 +1351,15 @@ window.__ModuleLoader__.load({
 			return adds !== dels;
 		}
 
-		/** One hunk as numbered rows. */
-		function UnifiedHunk(props) {
+		/**
+		 * One hunk as numbered rows.
+		 *
+		 * Memoized on the hunk object itself: the server's answer is kept whole
+		 * across a refresh that changed nothing, so an unchanged hunk keeps its
+		 * identity and the rows inside it are never rebuilt. This is what makes a
+		 * comparison cost its size ONCE instead of once per tick.
+		 */
+		var UnifiedHunk = React.memo(function UnifiedHunk(props) {
 			var rows = hunkRows(props.hunk);
 			return h('section', { className: 'dshdv-hunk' },
 				h('div', { className: 'dshdv-hunkHeader' }, hunkHeaderText(props.hunk)),
@@ -749,10 +1370,12 @@ window.__ModuleLoader__.load({
 						h('span', { className: 'dshdv-sign' }, row.kind === 'add' ? '+' : row.kind === 'del' ? '-' : ' '),
 						h('span', { className: 'dshdv-text' }, row.text));
 				}));
-		}
+		}, function sameHunk(previous, next) {
+			return previous.hunk === next.hunk && previous.wrap === next.wrap;
+		});
 
-		/** One hunk as paired cells. */
-		function SplitHunk(props) {
+		/** One hunk as paired cells, memoized for the same reason as {@link UnifiedHunk}. */
+		var SplitHunk = React.memo(function SplitHunk(props) {
 			var rows = splitRows(props.hunk);
 			return h('section', { className: 'dshdv-hunk' },
 				h('div', { className: 'dshdv-hunkHeader' }, hunkHeaderText(props.hunk)),
@@ -765,7 +1388,9 @@ window.__ModuleLoader__.load({
 							h('span', { className: 'dshdv-no' }, row.right === undefined ? '' : row.right.no),
 							h('span', { className: 'dshdv-text' }, row.right === undefined ? '' : row.right.text)));
 				}));
-		}
+		}, function sameHunk(previous, next) {
+			return previous.hunk === next.hunk && previous.wrap === next.wrap;
+		});
 
 		/** The whole view: scope bar, file list, comparison. */
 		function DiffView(props) {
@@ -789,6 +1414,19 @@ window.__ModuleLoader__.load({
 			var copied = copiedState[0];
 			var setCopied = copiedState[1];
 
+			/**
+			 * When the reader last did something.
+			 *
+			 * A diff view is only "live" while someone is working in the tree, so
+			 * the auto-refresh keeps the quick cadence for a while after any
+			 * interaction or fresh answer and then backs off to a slow one. Nothing
+			 * on screen changes at either cadence unless the answer differs.
+			 */
+			var activeUntil = React.useRef(0);
+			var markActive = function () {
+				activeUntil.current = Date.now() + AUTO_REFRESH_ACTIVE_MS;
+			};
+
 			React.useEffect(function () {
 				void controller.load(sessionId);
 				return function () {
@@ -797,15 +1435,42 @@ window.__ModuleLoader__.load({
 			}, [controller, sessionId]);
 
 			React.useEffect(function () {
+				// A fresh phase or a different number of files is a new picture.
+				markActive();
+			}, [state.phase, state.files.length]);
+
+			/* An armed checkpoint disarms itself: a button that stays armed is a
+			 * button that commits something the reader has stopped thinking about. */
+			React.useEffect(function () {
+				if (state.commitPhase !== 'confirm') return undefined;
+				var timer = window.setTimeout(function () { controller.cancelCommit(); }, 4000);
+				return function () { window.clearTimeout(timer); };
+			}, [controller, state.commitPhase]);
+
+			/* One counter per completed auto-refresh tick: the loop needs a state
+			 * change to schedule its next read, and a refresh that found nothing
+			 * new deliberately produces none. */
+			var tickState = React.useState(0);
+			var tick = tickState[0];
+			var setTick = tickState[1];
+
+			React.useEffect(function () {
 				if (!auto) return undefined;
-				var timer = window.setInterval(function () {
-					if (document.hidden) return;
-					void controller.refresh(sessionId);
-				}, AUTO_REFRESH_MS);
+				/* A hidden page does not need the active cadence: nothing is being
+				 * looked at, and a background tab should not poll a tree. */
+				var active = Date.now() < activeUntil.current;
+				var delay = !active || document.hidden ? AUTO_REFRESH_IDLE_MS : AUTO_REFRESH_MS;
+				var timer = window.setTimeout(function () {
+					if (!document.hidden) void controller.refresh(sessionId);
+					/* The next read is scheduled from the tick itself, and the tick is
+					 * NOT activity: a reader who stops interacting, or a tree that
+					 * stops moving, has to be able to fall back to the slow cadence. */
+					setTick(tick + 1);
+				}, delay);
 				return function () {
-					window.clearInterval(timer);
+					window.clearTimeout(timer);
 				};
-			}, [auto, controller, sessionId]);
+			}, [auto, controller, sessionId, tick]);
 
 			React.useEffect(function () {
 				if (!copied) return undefined;
@@ -814,19 +1479,83 @@ window.__ModuleLoader__.load({
 			}, [copied]);
 
 			var files = state.files;
+			/* The pool the turn axis leaves: this turn's files, or the files that
+			 * exist as of the bound. The search box narrows it further, and the detail
+			 * pane follows it — so a file the chosen axis excludes shows the empty
+			 * state rather than another turn's comparison. */
+			var pool = visibleFiles(files, state);
+			var stateView = state.scope === SESSION && state.viewMode === STATE_MODE;
+			var deletedCount = stateView ? stateAt(files, boundTurn(state)).deleted : 0;
 			var needle = filter.trim().toLowerCase();
 			var visible = needle === ''
-				? files
-				: files.filter(function (file) {
+				? pool
+				: pool.filter(function (file) {
 					return (file.display || file.path).toLowerCase().indexOf(needle) !== -1
 						|| file.path.toLowerCase().indexOf(needle) !== -1;
 				});
 			var selectedFile = state.selected === null
 				? undefined
-				: files.find(function (file) { return file.path === state.selected; });
+				: pool.find(function (file) { return file.path === state.selected; });
+			var selectedFacts = selectedFile === undefined ? undefined : factsForView(selectedFile, state);
+			var selectedTurn = selectedFile === undefined ? undefined : changeTurnFor(selectedFile, state);
 			var notice = noticeFor(state, t);
 
+			/**
+			 * Choose a file. Stable across renders (and takes the path as its
+			 * argument) precisely so the memoized rows are not invalidated by a
+			 * fresh closure on every patch.
+			 */
+			var onSelect = React.useCallback(function (path) {
+				markActive();
+				void controller.select(sessionId, path);
+			}, [controller, sessionId]);
+
+			/**
+			 * One turn chip: how many files that turn accounts for, and whether it is
+			 * the one being viewed. `null` is the aggregate view.
+			 *
+			 * The count follows the axis: the turn's own files in the delta view, every
+			 * file changed up to it in the state view — so the strip reads as a
+			 * timeline either way.
+			 */
+			function turnChip(turn, label, count) {
+				return h('button', {
+					key: turn === null ? 'all' : String(turn),
+					type: 'button',
+					className: 'dshdv-turn',
+					'data-turn': turn === null ? 'all' : String(turn),
+					'aria-pressed': state.viewTurn === turn,
+					onClick: function () {
+						markActive();
+						void controller.setTurn(sessionId, turn);
+					},
+				}, label, h('span', { className: 'dshdv-turnCount' }, String(count)));
+			}
+
+			/** One axis chip: which question the turn strip's numbers answer. */
+			function modeChip(mode, label, title) {
+				return h('button', {
+					key: mode,
+					type: 'button',
+					className: 'dshdv-turn',
+					'data-mode': mode,
+					title: title,
+					'aria-pressed': state.viewMode === mode,
+					onClick: function () {
+						markActive();
+						void controller.setMode(sessionId, mode);
+					},
+				}, label);
+			}
+
+			/** How many files one chip accounts for, under the axis in force. */
+			function countFor(turn) {
+				if (!stateView) return filesForTurn(files, turn).length;
+				return turn === null ? stateAt(files, boundTurn(state)).rows.length : stateAt(files, turn).rows.length;
+			}
+
 			function selectScope(scope) {
+				markActive();
 				void controller.setScope(scope, sessionId);
 			}
 
@@ -858,9 +1587,13 @@ window.__ModuleLoader__.load({
 				listBody = h('div', { className: 'dshdv-status' }, h('p', null, needle === '' ? t('list.empty') : t('list.emptyFiltered')));
 			} else {
 				listBody = visible.map(function (file) {
+					var facts = factsForView(file, state);
+					var changed = stateView ? changeTurnFor(file, state) : undefined;
 					return h(FileRow, {
 						key: file.path, file: file, t: t, selected: file.path === state.selected,
-						onSelect: function () { void controller.select(sessionId, file.path); },
+						status: facts.status, added: facts.added, deleted: facts.deleted,
+						turnTag: changed === undefined ? undefined : format(t('turn.tag'), { turn: String(changed) }),
+						onSelect: onSelect,
 					});
 				});
 			}
@@ -869,17 +1602,25 @@ window.__ModuleLoader__.load({
 					className: 'dshdv-listBody', role: 'listbox', 'aria-label': t('view.label'), 'data-dsh-diff-list': '',
 				}, listBody));
 
-			/* The detail pane: the selected file's comparison behind its header. */
-			var detailPane;
+			/**
+			 * The detail pane: the selected file's comparison behind its header.
+			 *
+			 * This wrapper is load-bearing, not decoration: `.dshdv-main` is the
+			 * row that places the file list beside the comparison, so the header
+			 * and the scrolling body have to arrive as ONE child or they become
+			 * siblings of the list and fight it for width. A fragment here would
+			 * splice them into that row — which is exactly the bug this replaced.
+			 */
+			var detailBody;
 			if (selectedFile === undefined) {
-				detailPane = h('div', { className: 'dshdv-status' },
+				detailBody = h('div', { className: 'dshdv-status' },
 					h('span', { 'aria-hidden': 'true' }, icon(ICON_EMPTY)),
 					h('p', null, t('diff.empty')));
 			} else {
 				var counts = [
-					statusLabel(t, selectedFile.status),
-					selectedFile.added > 0 ? h('span', { key: 'add', className: 'dshdv-add' }, '+' + selectedFile.added) : null,
-					selectedFile.deleted > 0 ? h('span', { key: 'del', className: 'dshdv-del' }, '−' + selectedFile.deleted) : null,
+					statusLabel(t, selectedFacts.status),
+					selectedFacts.added > 0 ? h('span', { key: 'add', className: 'dshdv-add' }, '+' + selectedFacts.added) : null,
+					selectedFacts.deleted > 0 ? h('span', { key: 'del', className: 'dshdv-del' }, '−' + selectedFacts.deleted) : null,
 				];
 				var tools = h('span', { className: 'dshdv-headTools' },
 					h('button', {
@@ -903,20 +1644,27 @@ window.__ModuleLoader__.load({
 						'aria-label': t('action.copy'), 'data-dsh-diff-copy': copied ? 'copied' : '',
 						onClick: copyPath,
 					}, icon(ICON_COPY)));
-				detailPane = h(React.Fragment, null,
-					h('div', { className: 'dshdv-head' },
+				detailBody = [
+					h('div', { key: 'head', className: 'dshdv-head' },
 						h('span', {
 							className: 'dshdv-headPath', title: selectedFile.path, 'data-dsh-diff-path': selectedFile.path,
 						}, selectedFile.display || selectedFile.path),
 						h('span', { className: 'dshdv-summary' }, counts),
+						stateView && selectedTurn !== undefined
+							? h('span', { className: 'dshdv-turnTag' }, format(t('turn.lastChange'), { turn: String(selectedTurn) }))
+							: null,
+						state.diffPhase === 'loading' ? h('span', { className: 'dshdv-headBusy', role: 'status' }, t('diff.loading')) : null,
 						tools),
 					h(DiffBody, {
+						key: 'body',
 						state: state, t: t, wrap: wrap, split: split,
 						onRetry: function () {
 							if (state.selected !== null) void controller.select(sessionId, state.selected);
 						},
-					}));
+					}),
+				];
 			}
+			var detailPane = h('div', { className: 'dshdv-body' }, detailBody);
 
 			return h('div', { className: 'dshdv-root', 'data-dsh-diff-view': state.scope },
 				h('div', { className: 'dshdv-bar' },
@@ -932,9 +1680,12 @@ window.__ModuleLoader__.load({
 							onClick: function () { selectScope(SESSION); },
 						}, t('scope.session'))),
 					h('span', { className: 'dshdv-summary', 'data-dsh-diff-summary': '' },
-						format(t('summary.files'), { count: files.length }),
-						h('span', { className: 'dshdv-add' }, format(t('summary.added'), { count: state.totals.added })),
-						h('span', { className: 'dshdv-del' }, format(t('summary.deleted'), { count: state.totals.deleted }))),
+						format(t('summary.files'), { count: pool.length }),
+						stateView
+							? (deletedCount > 0 ? h('span', { className: 'dshdv-del' }, format(t('summary.deletedFiles'), { count: deletedCount })) : null)
+							: h(React.Fragment, null,
+								h('span', { className: 'dshdv-add' }, format(t('summary.added'), { count: state.totals.added })),
+								h('span', { className: 'dshdv-del' }, format(t('summary.deleted'), { count: state.totals.deleted })))),
 					h('span', { className: 'dshdv-barSpacer' }),
 					h('span', { className: 'dshdv-filter' },
 						h('input', {
@@ -956,9 +1707,59 @@ window.__ModuleLoader__.load({
 						type: 'button', className: 'dshdv-btn', title: t('action.refresh'), 'aria-label': t('action.refresh'),
 						'data-dsh-diff-refresh': '',
 						onClick: function () { void controller.refresh(sessionId); },
-					}, icon(ICON_REFRESH))),
+					}, icon(ICON_REFRESH)),
+					/* The one write action. Two presses, because a commit is a
+					 * decision about history: the first arms it and names what will
+					 * happen, the second performs it — and it disarms itself when the
+					 * reader moves on. */
+					h('button', {
+						type: 'button',
+						className: 'dshdv-btn',
+						'data-dsh-diff-commit': state.commitPhase,
+						'data-phase': state.commitPhase,
+						'aria-pressed': state.commitPhase === 'confirm',
+						disabled: state.commitPhase === 'busy',
+						title: t('commit.title'),
+						'aria-label': t('commit.action'),
+						onClick: function () {
+							markActive();
+							if (state.commitPhase === 'confirm') {
+								void controller.commit(sessionId, state.viewTurn === null ? state.turn : state.viewTurn);
+								return;
+							}
+							controller.armCommit();
+						},
+					},
+						state.commitPhase === 'busy'
+							? '…'
+							: state.commitPhase === 'confirm'
+								? t('commit.confirm')
+								: icon(ICON_COMMIT))),
+
+				state.scope === SESSION && state.turns.length > 0
+					? h('div', {
+						className: 'dshdv-turns', role: 'group', 'aria-label': t('turn.label'), 'data-dsh-diff-turns': '',
+					},
+						turnChip(null, t('turn.all'), countFor(null)),
+						state.turns.map(function (turn) {
+							return turnChip(turn, format(t('turn.chip'), { turn: String(turn) }), countFor(turn));
+						}),
+						h('span', { className: 'dshdv-turnsSpacer' }),
+						h('span', { className: 'dshdv-modes', role: 'group', 'aria-label': t('mode.label'), 'data-dsh-diff-modes': '' },
+							modeChip(DELTA_MODE, t('mode.delta'), t('mode.delta.title')),
+							modeChip(STATE_MODE, t('mode.state'), t('mode.state.title'))))
+					: null,
 
 				notice === null ? null : h('p', { className: 'dshdv-note', 'data-dsh-diff-notice': notice }, t(notice)),
+
+				state.commitNote === null
+					? null
+					: h('p', {
+						className: 'dshdv-note',
+						'data-dsh-diff-commit-note': state.commitNote.key,
+						'data-phase': state.commitPhase,
+						role: 'status',
+					}, format(t(state.commitNote.key), state.commitNote.values)),
 
 				h('div', { className: 'dshdv-main' }, listPane, detailPane));
 		}

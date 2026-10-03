@@ -195,7 +195,7 @@ async function makeFixture() {
  * -------------------------------------------------------------------------- */
 
 /** One route invocation: the handler's promise plus the captured response. */
-async function callRoute(handler, url) {
+async function callRoute(handler, url, options = {}) {
   const chunks = []
   const res = {
     status: 0,
@@ -211,11 +211,17 @@ async function callRoute(handler, url) {
     },
     destroy() {},
   }
+  const body = options.body
   const req = {
     url,
-    method: 'GET',
+    method: options.method ?? 'GET',
     headers: {},
     socket: { remoteAddress: '127.0.0.1' },
+    destroy() {},
+    async *[Symbol.asyncIterator]() {
+      if (body === undefined) return
+      yield Buffer.from(body, 'utf8')
+    },
   }
   await handler(req, res)
   const text = Buffer.concat(chunks).toString('utf8')
@@ -231,6 +237,7 @@ async function main() {
   const http = await import(pathToFileURL(path.join(HERE, '..', 'lib', 'http.js')).href)
   const git = await import(pathToFileURL(path.join(HERE, '..', 'lib', 'git.js')).href)
   const routesModule = await import(pathToFileURL(path.join(HERE, '..', 'lib', 'routes.js')).href)
+  const commitModule = await import(pathToFileURL(path.join(HERE, '..', 'lib', 'commit.js')).href)
 
   console.log('# parser fixtures')
   const fixture = await makeFixture()
@@ -298,23 +305,17 @@ async function main() {
   console.log('# routes')
   const sessions = { fixture: fixture.root }
   const summaries = new Map()
+  /** Comparisons the fake recorder answers, keyed `seq:index`; absent means none. */
+  const comparisons = new Map()
+  /** Every derivation the routes asked for, in order — the cache's audit trail. */
+  const diffCalls = []
   const fakeChanges = {
     summary(sessionId, seq) {
       return summaries.get(`${sessionId}:${seq}`)
     },
     async diff(sessionId, seq, index) {
-      const summary = summaries.get(`${sessionId}:${seq}`)
-      const file = summary?.files?.[index]
-      if (file === undefined) return undefined
-      return {
-        kind: 'text',
-        path: file.path,
-        display: file.display,
-        before: true,
-        after: true,
-        hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 2, lines: [' first', '+second'] }],
-        coarse: false,
-      }
+      diffCalls.push(`${seq}:${index}`)
+      return comparisons.get(`${seq}:${index}`)
     },
   }
   const ctx = {
@@ -334,7 +335,8 @@ async function main() {
                 { type: 'tool/call', seq: 6, data: { turn: 2, name: 'write', arguments: JSON.stringify({ file_path: 'F:/ws/src/absolute.js' }) } },
                 { type: 'tool/call', seq: 7, data: { turn: 2, name: 'read', arguments: JSON.stringify({ file_path: 'src/read-only.js' }) } },
                 { type: 'tool/call', seq: 8, data: { turn: 3, name: 'edit', arguments: '{ not json' } },
-                { type: 'turn/end', seq: 9, data: { turn: 3 } },
+                { type: 'turn/end', seq: 9, data: { turn: 2 } },
+                { type: 'workspace/changes', seq: 10, data: { turn: 2 } },
               ],
             }
           },
@@ -348,7 +350,7 @@ async function main() {
   }
   const logger = { info() {}, warn() {} }
   const routes = routesModule.makeRoutes({ ctx, config: {}, logger })
-  equal(routes.map(route => `${route.kind} ${route.path}`), ['exact /api/dsh-diff/files', 'exact /api/dsh-diff/file'], 'the family mounts two exact routes')
+  equal(routes.map(route => `${route.kind} ${route.path}`), ['exact /api/dsh-diff/files', 'exact /api/dsh-diff/file', 'exact /api/dsh-diff/commit'], 'the family mounts its exact routes')
   const filesRoute = routes.find(route => route.path === routesModule.ROUTES.files).handler
   const fileRoute = routes.find(route => route.path === routesModule.ROUTES.file).handler
 
@@ -384,22 +386,73 @@ async function main() {
   summaries.set('fixture:4', {
     turn: 1,
     cwd: fixture.root,
-    total: 2,
-    added: 5,
-    deleted: 1,
+    total: 3,
+    added: 3,
+    deleted: 0,
     files: [
-      { path: 'src/keep.txt', display: 'src/keep.txt', added: 4, deleted: 1 },
+      { path: 'src/keep.txt', display: 'src/keep.txt', added: 1, deleted: 0 },
       { path: 'src/twice.txt', display: 'src/twice.txt', added: 1, deleted: 0 },
     ],
   })
+  // A second turn that changed one of the same paths AND deleted another: the
+  // per-turn view exists because both turns' coordinates and counts are served
+  // at once, and the state view exists because each turn's status is derived.
+  summaries.set('fixture:10', {
+    turn: 2,
+    cwd: fixture.root,
+    total: 2,
+    added: 4,
+    deleted: 4,
+    files: [
+      { path: 'src/keep.txt', display: 'src/keep.txt', added: 4, deleted: 1 },
+      { path: 'src/gone.txt', display: 'src/gone.txt', added: 0, deleted: 3 },
+    ],
+  })
+  /** One text comparison, with the sides that decide the status. */
+  const textDiff = (path, before, after) => ({
+    kind: 'text', path, display: path, before, after, coarse: false,
+    hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 2, lines: [' first', '+second'] }],
+  })
+  comparisons.set('4:0', textDiff('src/keep.txt', true, true))
+  comparisons.set('4:1', textDiff('src/twice.txt', false, true))
+  comparisons.set('10:0', textDiff('src/keep.txt', true, true))
+  comparisons.set('10:1', textDiff('src/gone.txt', true, false))
   const sessionListing = await callRoute(filesRoute, '/api/dsh-diff/files?scope=session&sessionId=fixture')
   ok(sessionListing.status === 200 && sessionListing.body?.scope === 'session', 'the session listing answers 200', JSON.stringify(sessionListing.body))
   const sessionPaths = (sessionListing.body?.files ?? []).map(file => file.path)
   const sessionByPath = Object.fromEntries((sessionListing.body?.files ?? []).map(file => [file.path, file]))
   ok(sessionByPath['src/keep.txt'] !== undefined && sessionByPath['src/twice.txt'] !== undefined, 'the session listing folds one entry per recorded path', JSON.stringify(sessionPaths))
   ok(sessionListing.body?.files?.every(file => Array.isArray(file.changedTurns)), 'each session entry carries the turns that changed it')
-  ok(sessionListing.body?.added === 5 && sessionListing.body?.deleted === 1, 'the session totals add up')
-  ok(sessionByPath['src/keep.txt']?.at !== undefined && sessionByPath['src/keep.txt']?.at.turn === 1, 'a recorded entry carries the coordinate of its comparison', JSON.stringify(sessionByPath['src/keep.txt']?.at))
+  ok(sessionListing.body?.added === 5 && sessionListing.body?.deleted === 4, 'the session totals add up over each file\'s newest turn', `${sessionListing.body?.added}/${sessionListing.body?.deleted}`)
+  ok(JSON.stringify(sessionListing.body?.turns) === JSON.stringify([2, 1]), 'the listing names its turns, newest first', JSON.stringify(sessionListing.body?.turns))
+
+  // -- per-turn coordinates -------------------------------------------------
+  const keepEntry = sessionByPath['src/keep.txt']
+  ok(keepEntry?.at?.turn === 2, 'the aggregate view compares a file at its newest turn', JSON.stringify(keepEntry?.at))
+  ok(Array.isArray(keepEntry?.sources) && keepEntry.sources.length === 2, 'a file changed twice carries one source per turn', JSON.stringify(keepEntry?.sources))
+  ok(JSON.stringify(keepEntry?.sources?.map(source => source.turn)) === JSON.stringify([1, 2]), 'sources are ordered oldest first', JSON.stringify(keepEntry?.sources?.map(source => source.turn)))
+  ok(keepEntry?.sources?.[0]?.seq === 4 && keepEntry?.sources?.[0]?.index === 0, 'each source carries its own event coordinate', JSON.stringify(keepEntry?.sources?.[0]))
+  ok(keepEntry?.sources?.[0]?.added === 1 && keepEntry?.sources?.[1]?.added === 4, 'each source carries ITS turn\'s line counts', JSON.stringify(keepEntry?.sources?.map(source => [source.added, source.deleted])))
+  ok(keepEntry?.added === 4 && keepEntry?.deleted === 1, 'the entry\'s own counts are the newest turn\'s', `${keepEntry?.added}/${keepEntry?.deleted}`)
+  ok(sessionByPath['src/twice.txt']?.sources?.length === 1, 'a file changed once carries one source', JSON.stringify(sessionByPath['src/twice.txt']?.sources))
+
+  // -- derived change statuses ----------------------------------------------
+  // A summary says how MUCH changed, never WHICH KIND; the recorder's own
+  // before/after sides are the only authority, so the listing derives them.
+  ok(sessionByPath['src/keep.txt']?.status === 'modified', 'a file edited twice reads as modified', String(sessionByPath['src/keep.txt']?.status))
+  ok(sessionByPath['src/twice.txt']?.status === 'added', 'a file that did not exist at turn start reads as added', String(sessionByPath['src/twice.txt']?.status))
+  ok(sessionByPath['src/gone.txt']?.status === 'deleted', 'a file absent at turn end reads as deleted', String(sessionByPath['src/gone.txt']?.status))
+  ok(keepEntry?.sources?.[1]?.status === 'modified' && sessionByPath['src/twice.txt']?.sources?.[0]?.status === 'added', 'each source carries ITS turn\'s status', JSON.stringify([keepEntry?.sources?.[1]?.status, sessionByPath['src/twice.txt']?.sources?.[0]?.status]))
+  ok(sessionByPath['src/gone.txt']?.sources?.[0]?.status === 'deleted', 'the deleting turn\'s source says deleted', JSON.stringify(sessionByPath['src/gone.txt']?.sources?.[0]))
+
+  const derivedOnce = diffCalls.length
+  ok(derivedOnce === 4, 'each file-turn is measured exactly once', `${derivedOnce}: ${JSON.stringify(diffCalls)}`)
+  await callRoute(filesRoute, '/api/dsh-diff/files?scope=session&sessionId=fixture')
+  ok(diffCalls.length === derivedOnce, 'a repeated listing reuses the derived statuses', `${diffCalls.length}: ${JSON.stringify(diffCalls)}`)
+
+  // A turn's comparison is addressed by that turn's own coordinate.
+  const turnOne = await callRoute(fileRoute, '/api/dsh-diff/file?scope=session&sessionId=fixture&path=' + encodeURIComponent('src/keep.txt') + '&at=1:4:0')
+  ok(turnOne.status === 200 && turnOne.body?.turn === 1, 'an older turn\'s comparison is served by its own coordinate', JSON.stringify(turnOne.body))
 
   // Paths the recorder left no summary for are still listed, from the log.
   const derivedPath = `${fixture.root.replace(/\\/gu, '/')}/src/derived.js`
@@ -409,6 +462,7 @@ async function main() {
   ok(derived?.display === 'src/derived.js', 'a derived entry is displayed relative to the Session directory', String(derived?.display))
   ok(derived?.changedTurns?.[0] === 2, 'a derived entry names the turn that touched it', JSON.stringify(derived?.changedTurns))
   ok(derived?.status === 'modified', 'an edit reads as a modification', String(derived?.status))
+  ok(derived?.sources?.[0]?.turn === 2 && derived?.sources?.[0]?.seq === undefined, 'a derived entry carries a source with no coordinate', JSON.stringify(derived?.sources))
   ok(sessionPaths.includes('F:/ws/src/absolute.js') === true, 'an absolute tool path is listed too', JSON.stringify(sessionPaths))
   ok(sessionByPath['F:/ws/src/absolute.js']?.status === 'added', 'a write reads as an addition', String(sessionByPath['F:/ws/src/absolute.js']?.status))
   ok(sessionPaths.some(path => path.endsWith('read-only.js')) === false, 'a read-only tool call is not a change', JSON.stringify(sessionPaths))
@@ -416,10 +470,47 @@ async function main() {
 
   const sessionComparison = await callRoute(fileRoute, `/api/dsh-diff/file?scope=session&sessionId=fixture&path=${encodeURIComponent('src/keep.txt')}`)
   ok(sessionComparison.status === 200 && sessionComparison.body?.hunks?.[0]?.lines?.[1] === '+second', 'the session comparison is served from the recorder', JSON.stringify(sessionComparison.body))
-  ok(sessionComparison.body?.turn === 1, 'the session comparison names its turn', JSON.stringify(sessionComparison.body))
+  ok(sessionComparison.body?.turn === 2, 'an unaddressed comparison answers with the newest turn', JSON.stringify(sessionComparison.body))
 
   const derivedComparison = await callRoute(fileRoute, `/api/dsh-diff/file?scope=session&sessionId=fixture&path=${encodeURIComponent(derivedPath)}`)
   ok(derivedComparison.status === 404 && derivedComparison.body?.error?.code === 'diff/no-comparison', 'a derived path with no stored comparison answers no-comparison', JSON.stringify(derivedComparison.body))
+
+  // -- live-session fast path ----------------------------------------------
+  console.log('# live session')
+  const logReads = []
+  const live = { cwd: fixture.root }
+  const liveCtx = {
+    get(name) {
+      if (name === 'sessions') return { get: id => (id === 'live-one' ? { header: { cwd: live.cwd } } : undefined) }
+      if (name === 'sessionQuery') {
+        return {
+          async readSession(sessionId) {
+            logReads.push(sessionId)
+            if (!Object.prototype.hasOwnProperty.call(sessions, sessionId)) throw new Error('unknown session')
+            return { session: { id: sessionId, cwd: sessions[sessionId] }, events: [] }
+          },
+        }
+      }
+      if (name === 'subprocess') return subprocess
+      return undefined
+    },
+    logger: { info() {}, warn() {} },
+  }
+  const liveRoutes = routesModule.makeRoutes({ ctx: liveCtx, config: {}, logger })
+  const liveFiles = liveRoutes.find(route => route.path === routesModule.ROUTES.files).handler
+  const liveFile = liveRoutes.find(route => route.path === routesModule.ROUTES.file).handler
+
+  const liveListing = await callRoute(liveFiles, '/api/dsh-diff/files?scope=git&sessionId=live-one')
+  ok(liveListing.status === 200 && liveListing.body?.repo !== null, 'a live Session answers from memory', JSON.stringify(liveListing.body?.error))
+  ok(logReads.length === 0, 'a live Session never has its log replayed for the working directory', JSON.stringify(logReads))
+
+  const liveComparison = await callRoute(liveFile, `/api/dsh-diff/file?scope=git&sessionId=live-one&path=${encodeURIComponent('src/keep.txt')}`)
+  ok(liveComparison.status === 200 && liveComparison.body?.kind === 'text', 'a live Session serves a comparison', JSON.stringify(liveComparison.body))
+  ok(logReads.length === 0, 'and still never replays the log', JSON.stringify(logReads))
+
+  // The second read of the same comparison reuses the memoized root and git path.
+  const secondComparison = await callRoute(liveFile, `/api/dsh-diff/file?scope=git&sessionId=live-one&path=${encodeURIComponent('src/keep.txt')}`)
+  ok(secondComparison.status === 200 && secondComparison.body?.hunks?.length === liveComparison.body?.hunks?.length, 'a repeated comparison is identical', JSON.stringify(secondComparison.body))
 
   // -- not a repository -----------------------------------------------------
   const bare = await mkdtemp(path.join(tmpdir(), 'dsh-diff-view-bare-'))
@@ -432,6 +523,78 @@ async function main() {
   const remote = { socket: { remoteAddress: '10.0.0.7' }, headers: {} }
   ok(http.peerRejection(ctx, loopback) === undefined, 'a loopback peer is admitted')
   ok(http.peerRejection(ctx, remote) === 403, 'a network peer is refused without a connection service')
+
+  // -- the commit route -----------------------------------------------------
+  console.log('# commit')
+  const commitRoute = routes.find(route => route.path === routesModule.ROUTES.commit).handler
+  const headBefore = await git.runGit(subprocess, executable, ['rev-parse', 'HEAD'], { cwd: fixture.root, signal })
+
+  const noMethod = await callRoute(commitRoute, '/api/dsh-diff/commit')
+  ok(noMethod.status === 405 && noMethod.body?.error?.code === 'diff/bad-method', 'committing refuses a GET', JSON.stringify(noMethod.body))
+  const noSession = await callRoute(commitRoute, '/api/dsh-diff/commit', { method: 'POST', body: '{}' })
+  ok(noSession.status === 400 && noSession.body?.error?.code === 'diff/bad-request', 'committing requires a Session', JSON.stringify(noSession.body))
+  const badBody = await callRoute(commitRoute, '/api/dsh-diff/commit', { method: 'POST', body: '{ not json' })
+  ok(badBody.status === 400 && badBody.body?.error?.code === 'diff/bad-body', 'a malformed body is refused, not parsed loosely', JSON.stringify(badBody.body))
+  const notRepoCommit = await callRoute(commitRoute, '/api/dsh-diff/commit', { method: 'POST', body: JSON.stringify({ sessionId: 'plain' }) })
+  ok(notRepoCommit.status === 404 && notRepoCommit.body?.error?.code === 'diff/not-a-repository', 'a directory outside git cannot be committed', JSON.stringify(notRepoCommit.body))
+
+  const committed = await callRoute(commitRoute, '/api/dsh-diff/commit', { method: 'POST', body: JSON.stringify({ sessionId: 'fixture', turn: 7 }) })
+  ok(committed.status === 200 && committed.body?.committed === true, 'the work tree is committed', JSON.stringify(committed.body))
+  ok(typeof committed.body?.revision === 'string' && committed.body.revision.length >= 7, 'the answer names the revision it created', JSON.stringify(committed.body))
+  ok(committed.body?.message === 'dsh-diff-view: checkpoint', 'the commit carries the default message', JSON.stringify(committed.body?.message))
+  ok(committed.body?.repository === fixture.root.replace(/\\/gu, '/') || committed.body?.repository !== undefined, 'the answer names the repository it committed', String(committed.body?.repository))
+
+  const headAfter = await git.runGit(subprocess, executable, ['rev-parse', 'HEAD'], { cwd: fixture.root, signal })
+  ok(headAfter.stdout.trim() !== headBefore.stdout.trim(), 'HEAD moved', `${headBefore.stdout.trim()} -> ${headAfter.stdout.trim()}`)
+  const logEntry = await git.runGit(subprocess, executable, ['--no-pager', 'log', '-1', '--pretty=%s'], { cwd: fixture.root, signal })
+  ok(logEntry.stdout.trim() === 'dsh-diff-view: checkpoint', 'the message is what the log shows', logEntry.stdout.trim())
+  const afterStatus = await git.runGit(subprocess, executable, ['status', '--porcelain=v2', '-z', '-uall'], { cwd: fixture.root, signal })
+  ok(afterStatus.stdout === '', 'the work tree is clean afterwards', JSON.stringify(afterStatus.stdout))
+  const trackedUntracked = await git.runGit(subprocess, executable, ['ls-files', '--error-unmatch', 'untracked.txt'], { cwd: fixture.root, signal })
+  ok(trackedUntracked.exitCode === 0, 'an untracked file is included, not left behind', trackedUntracked.stderr)
+
+  // Nothing left to commit is a result, not a failure — and not a new commit.
+  const second = await callRoute(commitRoute, '/api/dsh-diff/commit', { method: 'POST', body: JSON.stringify({ sessionId: 'fixture' }) })
+  ok(second.status === 200 && second.body?.committed === false && second.body?.reason === 'clean', 'a clean tree commits nothing', JSON.stringify(second.body))
+  const headUnchanged = await git.runGit(subprocess, executable, ['rev-parse', 'HEAD'], { cwd: fixture.root, signal })
+  ok(headUnchanged.stdout.trim() === headAfter.stdout.trim(), 'and HEAD does not move for it', headUnchanged.stdout.trim())
+
+  // The template is the profile's, and its placeholders are substituted.
+  ok(commitModule.commitMessage(undefined, { turn: 3 }) === 'dsh-diff-view: checkpoint', 'the default message stands in for a missing template')
+  ok(commitModule.commitMessage('turn {turn} of {session}', { turn: 3, session: 'abc' }) === 'turn 3 of abc', 'the template substitutes both placeholders', commitModule.commitMessage('turn {turn} of {session}', { turn: 3, session: 'abc' }))
+  ok(commitModule.commitMessage('   ', { turn: 1 }) === 'dsh-diff-view: checkpoint', 'a blank template falls back rather than committing an empty message')
+
+  // -- the automatic checkpoint --------------------------------------------
+  console.log('# automatic checkpoint')
+  ok(commitModule.eligibleCwd({ header: { cwd: 'F:/ws' } }) === 'F:/ws', 'a top-level Session is eligible', String(commitModule.eligibleCwd({ header: { cwd: 'F:/ws' } })))
+  ok(commitModule.eligibleCwd({ header: { cwd: 'F:/ws', origin: 'subagent' } }) === undefined, 'a subagent is not eligible', 'subagent')
+  ok(commitModule.eligibleCwd({ header: { cwd: 'F:/ws', delegationDepth: 1 } }) === undefined, 'a delegated Session is not eligible', 'delegated')
+  ok(commitModule.eligibleCwd({ header: {} }) === undefined, 'a Session without a directory is not eligible', 'no cwd')
+
+  const commits = []
+  const warnings = []
+  const auto = commitModule.createAutoCommit({
+    logger: { info: () => {}, warn: (message) => warnings.push(message) },
+    message: ({ turn, session }) => `checkpoint ${String(turn)} for ${String(session)}`,
+    commit: async (cwd, message) => {
+      commits.push({ cwd, message })
+      if (message.includes('9')) throw new Error('git said no')
+      return { committed: true, revision: 'abc1234' }
+    },
+  })
+  const topSession = { id: 's-top', header: { cwd: 'F:/ws' } }
+  const subSession = { id: 's-sub', header: { cwd: 'F:/ws', origin: 'subagent' } }
+  auto.onEvent(topSession, { type: 'turn/start', data: { turn: 1 } })
+  auto.onEvent(topSession, { type: 'turn/end', data: { turn: 1 } })
+  auto.onEvent(topSession, { type: 'turn/end', data: { turn: 1 } })
+  auto.onEvent(subSession, { type: 'turn/end', data: { turn: 1 } })
+  auto.onEvent(topSession, { type: 'turn/end', data: { turn: 9 } })
+  await auto.settled()
+  ok(commits.length === 2, 'one commit per finished top-level turn, once', JSON.stringify(commits))
+  ok(commits[0]?.cwd === 'F:/ws' && commits[0]?.message === 'checkpoint 1 for s-top', 'the commit carries the directory and the rendered message', JSON.stringify(commits[0]))
+  ok(commits[1]?.message === 'checkpoint 9 for s-top', 'a later turn is committed too', JSON.stringify(commits[1]))
+  ok(warnings.length === 1 && warnings[0].includes('git said no'), 'a refused commit is logged, not thrown', JSON.stringify(warnings))
+  ok(commits.some(entry => entry.cwd === undefined) === false, 'no commit runs without a resolved directory')
 
   // -- cleanup --------------------------------------------------------------
   await rm(fixture.root, { recursive: true, force: true })
