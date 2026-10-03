@@ -158,6 +158,26 @@
 
 本插件的两个页签都取了这个契约：根节点带 `data-conversation-composer-overlay`，并声明 `--dshdv-bottom-clearance: calc(var(--dsh-composer-height, 152px) + 16px)`，每个内部滚动区用它做 `padding-bottom`（与 `ui-trajectory` 的做法一致）。**缺任何一半都会坏**：只有属性没让位 → 最后一行被浮起的输入框压住；只有让位没属性 → 在并不存在浮动输入框的地方空出一块。测试把两半都钉住了。
 
+### 各类文件怎么浏览、哪些能编辑
+
+参考 `DSH-better-sidebar` 的 `src/client/builtins/viewers.tsx`，它自己写了一句决定性的判断：
+
+> DSH 0.1.7 ships `ui-sidebar-documentpreview`, its own code / spreadsheet / office / pdf / image / html / markdown / text previews with zoom and auto-refresh, so this plugin **yields every READ-ONLY preview it used to own** and keeps only the surfaces where it is not equivalent: markdown / html / **code（可编辑）**
+
+所以这里照抄那个判断，**而不是**自己重画图片/PDF/Office 预览：
+
+| 类型 | 在这里 | 说明 |
+|---|---|---|
+| `.txt` `.json` `.js` … 一切文本 | **编辑**（默认） | 文本域 + `Ctrl/⌘+S` 保存（带冲突检测）；右上可切「高亮」只读（外壳 `CodeBlock`） |
+| `.md` `.markdown` | **预览**（默认）→ 可切编辑 | 预览走外壳自己的 `MarkdownText`（表格/代码块/脚注都在），不自己写渲染器 |
+| `.html` `.htm` | **预览**（默认）→ 可切编辑 | `<iframe sandbox="">`，**无 `allow-scripts`**，指向本插件的 `/api/dsh-diff/raw` |
+| 图片 / PDF / Office / 表格 / 二进制 / 超大 | **交给外壳的预览器** | 面板给出「用外壳预览器打开」+「下载」，地址是外壳语法 `dsh-resource://file/session/<id>/<path>`，经 `ctx.get('sidebarRight').openResource()` |
+
+只读类型**不重画**的理由很实在：外壳那套预览器有缩放、自动刷新、Office/PDF 渲染，我自己写只会更差；反过来，**外壳的预览器不是编辑器**，这正是这个面板存在的意义。
+
+`/api/dsh-diff/raw` 是新的一条路由（HTML 预览的 document URL、图片兜底、下载），与文本读取**共用同一条包含性检查与上限** —— URL 不是绕过它们的办法；`cache-control: no-store`，因为预览的意义就是"现在这个文件的样子"。
+
+> ⚠️ **主机半边需要重新加载**：新增路由要由主机进程重新导入插件才生效（只刷新页面只换浏览器那一半）。未注册的 `/api/*` 路径会被外壳网关答成 **401**，所以「HTML 预览 / 下载」在主机重载前会失败，其余功能不受影响。
 ### 左栏照 `dsh-vscode` / 外壳文件面板的样子
 
 行/表头/图标都不是我自绘的，而是外壳 `ui-sidebar-files` FilesBody 的那一套：
@@ -273,8 +293,8 @@ dsh plugin add link:F:/deepseek_harness_workspace/dsh-diff-view
 ## 测试
 
 ```bash
-node tools/test-host.mjs      # 150 项：解析器对真实 git 输出、路由行为、会话折叠与兜底、围栏
-node tools/smoke-client.mjs   # 272 项：契约、注册、渲染、交互、失败态
+node tools/test-host.mjs      # 155 项：解析器对真实 git 输出、路由行为、会话折叠与兜底、围栏
+node tools/smoke-client.mjs   # 287 项：契约、注册、渲染、交互、失败态
 npm test                      # 两个都跑
 ```
 

@@ -1,13 +1,19 @@
-dsh-diff-view: the file tree wears the shell's own tree vocabulary
+dsh-diff-view: browse every file type, edit the ones that are editable
 
-The tree now draws what ui-sidebar-files draws, rather than a lookalike:
-- FileTypeIcon (kind = classifyFileType(name), 16px) for files, the shell's
-  IconFolderOpen/Close pair for directories -- the icon IS the expansion state,
-  so the twist triangles are gone
-- the 38px header with PathLabel (subdued directories, visible trailing name)
-  and one 28px reload tool; the tab strip's duplicate refresh button is removed
-- row metrics number-for-number from FilesBody.module.css: 5px 10px padding,
-  6px gap, --dsw-radius-md, 18px per level, scrollbar-gutter: stable, and the
-  shared interactive fill for hover/selection
+Follows the reference implementation's own call (DSH-better-sidebar
+builtins/viewers.tsx): the shell already ships read-only previews for images,
+PDFs, office documents, spreadsheets and text with zoom and auto-refresh, so
+this plugin yields those instead of re-drawing them, and keeps the two surfaces
+a previewer is not.
 
-272 client checks
+- text (default) -> the editor, Ctrl/Cmd+S, conflict-checked save, highlight mode
+- markdown -> the shell's own MarkdownText, one toggle from editing
+- html -> a sandboxed iframe (sandbox="", no allow-scripts) on the raw route
+- everything else -> "open in the shell previewer" plus a download, handed over
+  as dsh-resource://file/session/<id>/<path> through sidebarRight.openResource;
+  a refused hand-off is reported where the action was taken
+
+New route /api/dsh-diff/raw serves bytes with a content type for the frame and
+the download, under the same containment check and cap as the text read.
+
+155 host checks, 287 client checks

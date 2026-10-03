@@ -85,6 +85,8 @@ window.__ModuleLoader__.load({
 		var ROUTES_TREE = '/api/dsh-diff/tree';
 		var ROUTES_READ = '/api/dsh-diff/read';
 		var WRITE_URL = '/api/dsh-diff/write';
+		/** Raw bytes for a preview frame or a download. */
+		var ROUTES_RAW = '/api/dsh-diff/raw';
 
 		var GIT = 'git';
 		var SESSION = 'session';
@@ -186,6 +188,13 @@ window.__ModuleLoader__.load({
 				'files.close': '关闭',
 				'files.modified': '已修改',
 				'files.fileCount': '{count} 个标签',
+				'files.mode.preview': '预览',
+				'files.mode.edit': '编辑',
+				'files.openInShell': '用外壳预览器打开',
+				'files.openFailed': '外壳的预览器现在不可用',
+				'files.download': '下载',
+				'files.foreign': '这个类型不能在这里编辑；浏览请用外壳的预览器',
+				'files.htmlSandbox': '沙箱预览（脚本已禁用）',
 				'list.empty': '当前范围没有改动',
 				'list.emptyFiltered': '没有匹配的文件',
 				'list.loading': '正在读取改动…',
@@ -313,6 +322,13 @@ window.__ModuleLoader__.load({
 				'files.close': 'Close',
 				'files.modified': 'Modified',
 				'files.fileCount': '{count} tabs',
+				'files.mode.preview': 'Preview',
+				'files.mode.edit': 'Edit',
+				'files.openInShell': 'Open in the shell previewer',
+				'files.openFailed': 'The shell previewer is unavailable right now',
+				'files.download': 'Download',
+				'files.foreign': 'This type cannot be edited here; browse it in the shell previewer',
+				'files.htmlSandbox': 'Sandboxed preview (scripts disabled)',
 				'list.empty': 'No changes in this scope',
 				'list.emptyFiltered': 'No file matches the filter',
 				'list.loading': 'Reading changes…',
@@ -561,6 +577,12 @@ window.__ModuleLoader__.load({
 			'.dshdv-fvText{flex:1 1 auto;min-height:0;width:100%;box-sizing:border-box;margin:0;padding:8px 22px 20px;border:0;outline:none;resize:none;background:transparent;color:var(--dsw-alias-label-primary,#1b1f24);font:var(--dsw-font-markdown-code-block,12px/19px var(--ds-font-family-code,monospace));tab-size:2;white-space:pre;overflow:auto}',
 			'.dshdv-fvText:focus-visible{outline:none}',
 			'.dshdv-fvHighlight{flex:1 1 auto;min-height:0;overflow:auto;padding:8px 0 20px}',
+			/* The two previews this pane owns: a Markdown document through the shell's
+			 * renderer, and an HTML document in a frame that cannot run scripts. */
+			'.dshdv-fvPreview{flex:1 1 auto;min-height:0;overflow:auto;padding:12px 16px;color:var(--dsw-alias-label-primary,#1b1f24)}',
+			'.dshdv-fvPreview>*:first-child{margin-top:0}',
+			'.dshdv-fvFrameWrap{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;min-width:0}',
+			'.dshdv-fvFrame{flex:1 1 auto;min-height:0;width:100%;border:0;background:var(--dsw-alias-bg-base,#fff)}',
 			'.dshdv-fvHighlight .dshdv-code{border-radius:0;margin:0}',
 			'.dshdv-fvConflict{display:flex;align-items:center;gap:8px;flex:none;padding:6px 12px;background:var(--dsw-alias-bg-layer-2,rgba(0,0,0,.04));color:var(--dsw-alias-state-warn-primary,#c08a20);font-size:12px}',
 			'.dshdv-add{color:var(--dsw-alias-state-success-primary,#1a7f37)}',
@@ -699,6 +721,8 @@ window.__ModuleLoader__.load({
 		var ICON_COMMIT = [['M8 2.5v11'], ['M5.2 8a2.8 2.8 0 1 0 5.6 0 2.8 2.8 0 1 0-5.6 0']];
 		/** Save: the classic floppy, so the action reads the same as everywhere else. */
 		var ICON_SAVE = [['M3.5 3.5h7.2l1.8 1.8v7.2h-9z'], ['M5.8 3.5h4.4v3.1H5.8z'], ['M5.8 9.2h4.4v3.3H5.8z']];
+		/** Hand a file to the shell's own previewer: a box with an arrow leaving it. */
+		var ICON_EXTERNAL = [['M9.5 3.5h3v3'], ['M12.5 3.5 7.5 8.5'], ['M11 9.5v3h-7v-7h3']];
 
 		/* ------------------------------------------------------------------ *
 		 * Small helpers
@@ -2975,6 +2999,69 @@ window.__ModuleLoader__.load({
 			return 'plain';
 		}
 
+		/** Which preview a path gets, if it is not simply edited as text. */
+		var MARKDOWN_VIEW = 'markdown';
+		var HTML_VIEW = 'html';
+		var TEXT_VIEW = 'text';
+		var FOREIGN_VIEW = 'foreign';
+
+		/**
+		 * How one file should be shown.
+		 *
+		 * The split follows the reference implementation's own decision: the shell
+		 * ships read-only previews for images, PDFs, office documents, spreadsheets
+		 * and plain text (with zoom and auto-refresh), so a plugin that re-draws them
+		 * is strictly worse — those are handed to the shell's previewer. What is left
+		 * for this pane is the two surfaces a previewer is not: an EDITOR for text,
+		 * and the two previews worth having inline (Markdown through the shell's own
+		 * renderer, HTML through a sandboxed frame).
+		 *
+		 * @param path - workspace-relative path.
+		 * @param doc - the loaded document, if any.
+		 * @returns one of `markdown` / `html` / `text` / `foreign`.
+		 */
+		function viewerKindOf(path, doc) {
+			var extension = extensionOf(path);
+			if (MARKDOWN_EXTENSIONS.has(extension)) return MARKDOWN_VIEW;
+			if (extension === 'html' || extension === 'htm') return HTML_VIEW;
+			if (doc !== undefined && doc !== null && typeof doc.text === 'string' && doc.binary !== true && doc.oversized !== true) return TEXT_VIEW;
+			return FOREIGN_VIEW;
+		}
+
+		/** Whether a kind can be edited here at all. */
+		function kindIsEditable(kind) {
+			return kind === TEXT_VIEW || kind === MARKDOWN_VIEW || kind === HTML_VIEW;
+		}
+
+		/** Whether a kind opens in preview rather than in the editor. */
+		function kindPrefersPreview(kind) {
+			return kind === MARKDOWN_VIEW || kind === HTML_VIEW;
+		}
+
+		/**
+		 * Build a `dsh-resource://file/session/…` address for one file.
+		 *
+		 * The grammar's own helper lives in a package that is not in the module
+		 * table, so the address is assembled here — component-encoding each segment
+		 * and keeping `:` literal so a Windows drive letter reads as written.
+		 *
+		 * @param sessionId - the Session whose workspace resolves the path.
+		 * @param path - workspace-relative path.
+		 * @returns the address.
+		 */
+		function fileAddress(sessionId, path) {
+			var segments = [encodeURIComponent(sessionId)];
+			path.split('/').forEach(function (segment) {
+				if (segment !== '') segments.push(encodeURIComponent(segment).split('%3A').join(':'));
+			});
+			return 'dsh-resource://file/session/' + segments.join('/');
+		}
+
+		/** The raw URL a preview frame or a download points at. */
+		function rawUrl(sessionId, path, download) {
+			return ROUTES_RAW + '?sessionId=' + encodeURIComponent(sessionId) + '&path=' + encodeURIComponent(path) + (download === true ? '&download=1' : '');
+		}
+
 		/** The state the file view starts from. */
 		function filesState() {
 			return {
@@ -2997,6 +3084,10 @@ window.__ModuleLoader__.load({
 				failures: {},
 				/** The tab showing the highlighted (read-only) view instead of the editor. */
 				highlighting: null,
+				/** Per-tab preview/edit choice; absent means "by kind". */
+				modes: {},
+				/** Whether the shell previewer refused the last hand-off. */
+				openFailed: false,
 			};
 		}
 
@@ -3204,6 +3295,24 @@ window.__ModuleLoader__.load({
 					patch({ highlighting: on ? path : (state.highlighting === path ? null : state.highlighting) });
 				},
 
+				/** Note that the shell previewer refused the last hand-off. */
+				noteOpenFailed: function (failed) {
+					if (state.openFailed === failed) return;
+					patch({ openFailed: failed });
+				},
+
+				/** Choose preview or edit for one tab; the default comes from its kind. */
+				setMode: function (path, mode) {
+					patch({ modes: Object.assign({}, state.modes, { [path]: mode }) });
+				},
+
+				/** The mode one tab is in, defaulting by kind. */
+				modeOf: function (path) {
+					var chosen = state.modes[path];
+					if (chosen === 'preview' || chosen === 'edit') return chosen;
+					return kindPrefersPreview(viewerKindOf(path, state.docs[path])) ? 'preview' : 'edit';
+				},
+
 				/**
 				 * Save one tab.
 				 *
@@ -3375,9 +3484,27 @@ window.__ModuleLoader__.load({
 			var controller = props.controller;
 			var sessionId = props.sessionId;
 			var t = props.t;
+			var openInShell = props.openInShell === undefined ? function () { return false; } : props.openInShell;
+			/** Ask the shell to preview a file, and say so when it cannot. */
+			var handOver = function (path) {
+				markActive();
+				controller.noteOpenFailed(openInShell(path) !== true);
+			};
 			var state = React.useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
 			var activeUntil = React.useRef(0);
 			var markActive = function () { activeUntil.current = Date.now() + TURNS_ACTIVE_MS; };
+			/* MarkdownText memoizes its vocabulary; a fresh labels object each render
+			 * would discard its cache — the same rule the shell's chat view follows. */
+			var markdownLabels = React.useMemo(function () {
+				return {
+					code: {
+						copyLabel: t('turns.copy'),
+						copiedLabel: t('turns.copied'),
+						toolbarLabels: { codeLabel: t('turns.code'), wrapLabel: t('turns.wrap'), unwrapLabel: t('turns.unwrap') },
+					},
+					footnotes: t('turns.footnotes'),
+				};
+			}, [t]);
 
 			React.useEffect(function () {
 				void controller.load(sessionId);
@@ -3452,6 +3579,8 @@ window.__ModuleLoader__.load({
 
 			var activePath = state.active;
 			var activeDoc = activePath === null ? undefined : state.docs[activePath];
+			var activeKind = activePath === null || activeDoc === undefined || activeDoc.phase !== 'ready' ? null : viewerKindOf(activePath, activeDoc);
+			var activeMode = activePath === null ? 'edit' : controller.modeOf(activePath);
 
 			/**
 			 * One editing surface per OPEN tab, all of them mounted.
@@ -3483,8 +3612,46 @@ window.__ModuleLoader__.load({
 						h('p', null, t2(doc.error === null ? 'error.generic' : doc.error)),
 						h('button', { type: 'button', className: 'dshdv-btn', onClick: function () { void controller.reload(sessionId, path); } }, t2('error.retry')));
 				}
-				if (doc.binary === true) return h('div', { className: 'dshdv-status' }, h('p', null, t2('files.binary')));
-				if (doc.oversized === true) return h('div', { className: 'dshdv-status' }, h('p', null, t2('files.oversized', { count: String(doc.bytes) })));
+				var kind = viewerKindOf(path, doc);
+				var mode = controller.modeOf(path);
+				/* A type this pane cannot show at all — an image, a PDF, an office
+				 * document, a binary — is handed to the shell's previewer, which has
+				 * the renderer and the zoom controls already. */
+				if (kind === FOREIGN_VIEW) {
+					return h('div', { className: 'dshdv-status' },
+						h('p', null, t2(doc.binary === true ? 'files.binary' : doc.oversized === true ? 'files.oversized' : 'files.foreign')),
+						h('button', {
+							type: 'button',
+							className: 'dshdv-btn',
+							'data-dsh-diff-files-open-shell': path,
+							onClick: function () { handOver(path); },
+						}, t2('files.openInShell')),
+						h('a', {
+							className: 'dshdv-btn',
+							href: rawUrl(sessionId, path, true),
+							download: baseName(path),
+							'data-dsh-diff-files-download': path,
+						}, t2('files.download')));
+				}
+				if (mode === 'preview' && kind === MARKDOWN_VIEW) {
+					return h('div', { className: 'dshdv-fvPreview', 'data-dsh-diff-files-preview': path },
+						MarkdownText !== null
+							? h(MarkdownText, { text: doc.text, labels: markdownLabels })
+							: plainMarkdown(doc.text));
+				}
+				if (mode === 'preview' && kind === HTML_VIEW) {
+					return h('div', { className: 'dshdv-fvFrameWrap' },
+						h('p', { className: 'dshdv-fvNote' }, t2('files.htmlSandbox')),
+						/* No `allow-scripts`, so the document cannot run anything even
+						 * though it is served from this origin. */
+						h('iframe', {
+							className: 'dshdv-fvFrame',
+							title: path,
+							sandbox: '',
+							src: rawUrl(sessionId, path, false),
+							'data-dsh-diff-files-frame': path,
+						}));
+				}
 				if (state.highlighting === path) {
 					return h('div', { className: 'dshdv-fvHighlight', 'data-dsh-diff-files-highlight': path },
 						CodeBlock === null
@@ -3557,16 +3724,36 @@ window.__ModuleLoader__.load({
 			var editorHead = activePath === null ? null : h('div', { className: 'dshdv-fvEditorHead' },
 				h('span', { className: 'dshdv-fvPath' }, activePath),
 				status === null ? null : h('span', { className: 'dshdv-fvStatus', 'data-dsh-diff-files-status': '' }, status),
-				state.highlighting === activePath
+				/* Preview and edit are the two things a previewer is not: a rendered
+				 * view and an editor. Types this pane cannot show offer the hand-off
+				 * to the shell instead, which is where their renderers live. */
+				activeKind !== null && kindIsEditable(activeKind) && activeMode === 'preview'
+					? h('button', { type: 'button', className: 'dshdv-btn', 'data-dsh-diff-files-edit-mode': '', onClick: function () { controller.setMode(activePath, 'edit'); } }, t('files.mode.edit'))
+					: null,
+				activeKind !== null && kindIsEditable(activeKind) && activeMode !== 'preview'
+					? h('button', { type: 'button', className: 'dshdv-btn', 'data-dsh-diff-files-preview-mode': '', onClick: function () { controller.setMode(activePath, 'preview'); } }, t('files.mode.preview'))
+					: null,
+				activeKind !== null && activeMode !== 'preview' && activeKind === TEXT_VIEW
+					? h('button', { type: 'button', className: 'dshdv-btn', 'data-dsh-diff-files-highlight-toggle': '', onClick: function () { controller.setHighlight(activePath, true); } }, t('files.highlight'))
+					: null,
+				activeKind !== null && state.highlighting === activePath
 					? h('button', { type: 'button', className: 'dshdv-btn', 'data-dsh-diff-files-edit': '', onClick: function () { controller.setHighlight(activePath, false); } }, t('files.edit'))
-					: h('button', { type: 'button', className: 'dshdv-btn', 'data-dsh-diff-files-highlight-toggle': '', onClick: function () { controller.setHighlight(activePath, true); } }, t('files.highlight')),
+					: null,
+				h('button', {
+					type: 'button',
+					className: 'dshdv-btn',
+					'data-dsh-diff-files-open-shell-head': '',
+					title: t('files.openInShell'),
+					'aria-label': t('files.openInShell'),
+					onClick: function () { handOver(activePath); },
+				}, icon(ICON_EXTERNAL)),
 				h('button', {
 					type: 'button',
 					className: 'dshdv-btn',
 					'data-dsh-diff-files-save': '',
 					title: t('files.save'),
 					'aria-label': t('files.save'),
-					disabled: activeDoc === undefined || activeDoc.phase !== 'ready',
+					disabled: activeDoc === undefined || activeDoc.phase !== 'ready' || activeKind === FOREIGN_VIEW,
 					onClick: function () { void controller.save(sessionId, activePath, textFor(activePath), false); },
 				}, icon(ICON_SAVE)));
 
@@ -3576,6 +3763,14 @@ window.__ModuleLoader__.load({
 			var editor = state.tabs.length === 0
 				? h('div', { className: 'dshdv-status' }, h('p', null, t('files.noTabs')))
 				: editorPanes;
+
+			/* A hand-off the shell refused is news, and it is shown where the action
+			 * was taken rather than in a console the reader never opens. */
+			var openNotice = state.openFailed === true
+				? h('div', { className: 'dshdv-fvConflict', role: 'status', 'data-dsh-diff-files-open-failed': '' },
+					h('span', null, t('files.openFailed')),
+					h('button', { type: 'button', className: 'dshdv-btn', onClick: function () { controller.noteOpenFailed(false); } }, t('turns.close')))
+				: null;
 
 			return h('div', { className: 'dshdv-root', 'data-dsh-diff-files': '', 'data-conversation-composer-overlay': '' },
 				/* The header is the shell's own files-panel header: one 38px row holding
@@ -3601,7 +3796,7 @@ window.__ModuleLoader__.load({
 						h('div', { className: 'dshdv-fvTreeBody', role: 'tree', 'aria-label': t('files.label'), 'data-dsh-diff-files-tree': '' }, listBody)),
 					h('div', { className: 'dshdv-fvMain' },
 						tabStrip,
-						h('div', { className: 'dshdv-fvEditor' }, editorHead, conflictBar, editor))));
+						h('div', { className: 'dshdv-fvEditor' }, editorHead, openNotice, conflictBar, editor))));
 		}
 
 		/* ------------------------------------------------------------------ *
@@ -3665,6 +3860,27 @@ window.__ModuleLoader__.load({
 				var created = createTurnsController(t);
 				turnControllers.set(sessionId, created);
 				return created;
+			}
+
+			/**
+			 * Hand one file to the shell's own previewer.
+			 *
+			 * The shell ships renderers this plugin should not re-draw (images, PDFs,
+			 * office documents, spreadsheets, plain text, with zoom and auto-refresh),
+			 * and the public way in is the sidebar-right controller's `openResource`
+			 * with a `dsh-resource://file/session/…` address. A missing service or a
+			 * refused address is a result, not a crash: the caller shows the notice.
+			 */
+			function openFileInShell(sessionId, path) {
+				try {
+					var service = typeof ctx.get === 'function' ? ctx.get('sidebarRight') : undefined;
+					if (service === undefined || service === null || typeof service.openResource !== 'function') return false;
+					service.openResource(fileAddress(sessionId, path));
+					return true;
+				} catch (error) {
+					console.error('[dsh-diff-view] the shell previewer refused the file:', error);
+					return false;
+				}
 			}
 
 			/** The same, for the file view. */
@@ -3732,7 +3948,10 @@ window.__ModuleLoader__.load({
 							locale: NAMESPACE,
 							label: function () { return t('files.label'); },
 							inject: function (sessionId) {
-								return { controller: filesFor(sessionId) };
+								return {
+									controller: filesFor(sessionId),
+									openInShell: function (path) { return openFileInShell(sessionId, path); },
+								};
 							},
 						}, FilesView);
 					});

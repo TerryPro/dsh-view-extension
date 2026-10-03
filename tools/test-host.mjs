@@ -224,7 +224,11 @@ async function callRoute(handler, url, options = {}) {
     },
   }
   await handler(req, res)
-  const text = Buffer.concat(chunks).toString('utf8')
+  const bytes = Buffer.concat(chunks)
+  /* The raw route answers bytes rather than a JSON envelope, so a caller that
+   * asked for them gets them unparsed (and with the headers it set). */
+  if (options.bytes === true) return { status: res.status, bytes: bytes, headers: res.headers }
+  const text = bytes.toString('utf8')
   return { status: res.status, body: text === '' ? undefined : JSON.parse(text) }
 }
 
@@ -361,12 +365,13 @@ async function main() {
   }
   const logger = { info() {}, warn() {} }
   const routes = routesModule.makeRoutes({ ctx, config: {}, logger })
-  equal(routes.map(route => `${route.kind} ${route.path}`), ['exact /api/dsh-diff/files', 'exact /api/dsh-diff/file', 'exact /api/dsh-diff/tree', 'exact /api/dsh-diff/read', 'exact /api/dsh-diff/write', 'exact /api/dsh-diff/turns', 'exact /api/dsh-diff/turn', 'exact /api/dsh-diff/commit'], 'the family mounts its exact routes')
+  equal(routes.map(route => `${route.kind} ${route.path}`), ['exact /api/dsh-diff/files', 'exact /api/dsh-diff/file', 'exact /api/dsh-diff/tree', 'exact /api/dsh-diff/read', 'exact /api/dsh-diff/write', 'exact /api/dsh-diff/raw', 'exact /api/dsh-diff/turns', 'exact /api/dsh-diff/turn', 'exact /api/dsh-diff/commit'], 'the family mounts its exact routes')
   const filesRoute = routes.find(route => route.path === routesModule.ROUTES.files).handler
   const fileRoute = routes.find(route => route.path === routesModule.ROUTES.file).handler
   const treeRoute = routes.find(route => route.path === routesModule.ROUTES.tree).handler
   const readRoute = routes.find(route => route.path === routesModule.ROUTES.read).handler
   const writeRoute = routes.find(route => route.path === routesModule.ROUTES.write).handler
+  const rawRoute = routes.find(route => route.path === routesModule.ROUTES.raw).handler
   const turnsRoute = routes.find(route => route.path === routesModule.ROUTES.turns).handler
   const turnRoute = routes.find(route => route.path === routesModule.ROUTES.turn).handler
 
@@ -568,6 +573,16 @@ async function main() {
     body: JSON.stringify({ sessionId: 'fixture', path: 'src/keep.txt' }),
   })
   ok(missingContent.status === 400 && missingContent.body?.error?.code === 'diff/bad-request', 'a save without content is refused', JSON.stringify(missingContent.body))
+
+  // The raw route serves what a preview URL needs, under the same rules.
+  const rawHtml = await callRoute(rawRoute, '/api/dsh-diff/raw?sessionId=fixture&path=' + encodeURIComponent('src/keep.txt'), { bytes: true })
+  ok(rawHtml.status === 200 && rawHtml.bytes.length > 0, 'the raw route answers the file bytes', JSON.stringify(rawHtml.bytes?.length))
+  ok(String(rawHtml.headers?.['content-type'] ?? '').startsWith('text/plain'), 'the raw route names the content type', String(rawHtml.headers?.['content-type']))
+  ok(rawHtml.headers?.['cache-control'] === 'no-store', 'a preview URL is never cached', String(rawHtml.headers?.['cache-control']))
+  const rawDownload = await callRoute(rawRoute, '/api/dsh-diff/raw?sessionId=fixture&path=' + encodeURIComponent('src/keep.txt') + '&download=1', { bytes: true })
+  ok(String(rawDownload.headers?.['content-disposition'] ?? '').startsWith('attachment'), 'a download is served as an attachment', String(rawDownload.headers?.['content-disposition']))
+  const rawEscape = await callRoute(rawRoute, '/api/dsh-diff/raw?sessionId=fixture&path=' + encodeURIComponent('../outside.txt'))
+  ok(rawEscape.status === 400 && rawEscape.body?.error?.code === 'diff/bad-path', 'the raw route cannot escape the workspace', JSON.stringify(rawEscape.body))
 
   // -- the per-turn browser ------------------------------------------------
   console.log('# turns')

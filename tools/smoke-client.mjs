@@ -633,7 +633,23 @@ const ctx = {
       return () => {}
     },
   },
+  /**
+   * The shell's public services. `sidebarRight` is the one the file view hands
+   * read-only types to, so its real lookup and address construction are what the
+   * delegation tests exercise — a stub of the plugin's own action would test
+   * nothing but the stub.
+   */
+  get(name) {
+    return services.get(name)
+  },
 }
+/** Services the plugin may look up; a test swaps one in to change behaviour. */
+const services = new Map()
+/** Addresses handed to the shell's previewer. */
+const shellOpens = []
+services.set('sidebarRight', {
+  openResource(address) { shellOpens.push(address) },
+})
 
 let applyError = null
 try {
@@ -869,6 +885,13 @@ const viewProps = {
       'files.oversized': '文件太大（上限 {count} 字节）',
       'files.saveFailed': '保存失败：{detail}',
       'files.root': '工作目录',
+      'files.mode.preview': '预览',
+      'files.mode.edit': '编辑',
+      'files.openInShell': '用外壳预览器打开',
+      'files.openFailed': '外壳的预览器现在不可用',
+      'files.download': '下载',
+      'files.foreign': '这个类型不能在这里编辑',
+      'files.htmlSandbox': '沙箱预览（脚本已禁用）',
     }
     let text = copies[key] ?? key
     for (const [name, value] of Object.entries(values ?? {})) text = text.replace(`{${name}}`, String(value))
@@ -1596,14 +1619,18 @@ function seedFiles() {
       { name: 'src', type: 'directory' },
       { name: 'tools', type: 'directory' },
       { name: 'README.md', type: 'file' },
+      { name: 'notes.txt', type: 'file' },
     ])],
     [SRC_TREE, treeResponse('src', [
       { name: 'keep.txt', type: 'file' },
       { name: 'binary.bin', type: 'file' },
+      { name: 'page.html', type: 'file' },
     ])],
     [READ('README.md'), readResponse('README.md', '# hello\nworld\n')],
     [READ('src/keep.txt'), readResponse('src/keep.txt', 'first\nsecond\n')],
     [READ('src/binary.bin'), readResponse('src/binary.bin', '', { binary: true })],
+    [READ('notes.txt'), readResponse('notes.txt', 'notes here\n')],
+    [READ('src/page.html'), readResponse('src/page.html', '<h1>hi</h1>\n')],
   ])
 }
 
@@ -1629,7 +1656,7 @@ const dirtyDots = () => findAll(fileTree, node => node.props?.className === 'dsh
 check('the file view reads the working directory root', requests.some(entry => entry.url === ROOT_TREE), JSON.stringify(requests.map(entry => entry.url)))
 check('the tree header shows the root as the shell shows a path', findAll(fileTree, node => node.props?.['data-path-label'] !== undefined).length === 1 && textOf(findAll(fileTree, node => node.props?.['data-path-label'] !== undefined)[0]).includes('ws'), textOf(fileTree))
 check('the tree header offers a reload', findAll(fileTree, node => node.props?.['data-dsh-diff-files-refresh'] !== undefined).length === 1)
-check('the root level renders its entries', treeRows().length === 3, JSON.stringify(treeRows().map(node => node.props['data-path'])))
+check('the root level renders its entries', treeRows().length === 4, JSON.stringify(treeRows().map(node => node.props['data-path'])))
 check('the tree lists directories first', treeRows()[0].props['data-path'] === 'src', JSON.stringify(treeRows().map(node => node.props['data-path'])))
 check('a directory starts collapsed', treeRows()[0].props['aria-expanded'] === false, String(treeRows()[0].props['aria-expanded']))
 /* The shell's own language: the folder glyph carries the expansion state, so a
@@ -1656,12 +1683,52 @@ check('a tab appears for it', tabNodes().some(node => node.props['data-path'] ==
 check('the editor holds the file text', editorFor('src/keep.txt')?.props.defaultValue === 'first\nsecond\n', JSON.stringify(editorFor('src/keep.txt')?.props.defaultValue))
 check('the pane is the active one', paneFor('src/keep.txt')?.props['data-active'] === 'true', JSON.stringify(paneFor('src/keep.txt')?.props))
 
-// A second file: both panes stay MOUNTED, so the first draft cannot be lost.
-treeRows().find(node => node.props['data-path'] === 'README.md').props.onClick()
+// A second TEXT file: both panes stay MOUNTED, so the first draft cannot be lost.
+// (README.md is markdown, so it opens in the preview instead — asserted below.)
+treeRows().find(node => node.props['data-path'] === 'notes.txt').props.onClick()
 await settle(4)
 await showFiles()
 check('every open file keeps its editor mounted', findAll(fileTree, node => node.props?.['data-dsh-diff-files-editor'] !== undefined).length === 2, JSON.stringify(findAll(fileTree, node => node.props?.['data-dsh-diff-files-editor'] !== undefined).map(node => node.props['data-dsh-diff-files-editor'])))
-check('only the active pane is visible', paneFor('src/keep.txt')?.props.hidden === true && paneFor('README.md')?.props.hidden !== true, JSON.stringify([paneFor('src/keep.txt')?.props.hidden, paneFor('README.md')?.props.hidden]))
+check('only the active pane is visible', paneFor('src/keep.txt')?.props.hidden === true && paneFor('notes.txt')?.props.hidden !== true, JSON.stringify([paneFor('src/keep.txt')?.props.hidden, paneFor('notes.txt')?.props.hidden]))
+
+/* Per-type viewing. A Markdown document opens in the shell's own renderer, and
+ * the editor is one toggle away — the split the reference implementation also
+ * makes (its markdown/html viewers are the ones it keeps). */
+treeRows().find(node => node.props['data-path'] === 'README.md').props.onClick()
+await settle(4)
+await showFiles()
+check('markdown opens in the shell\'s renderer', findAll(fileTree, node => node.props?.['data-markdown'] !== undefined).length === 1, textOf(fileTree))
+check('and not in an editor', editorFor('README.md') === undefined)
+check('a previewed file can be switched to editing', findAll(fileTree, node => node.props?.['data-dsh-diff-files-edit-mode'] !== undefined).length === 1, textOf(fileTree))
+findAll(fileTree, node => node.props?.['data-dsh-diff-files-edit-mode'] !== undefined)[0].props.onClick()
+await settle(2)
+await showFiles()
+check('switching to editing mounts the editor', editorFor('README.md')?.props.defaultValue === '# hello\nworld\n', JSON.stringify(editorFor('README.md')?.props.defaultValue))
+check('and the way back to the preview is offered', findAll(fileTree, node => node.props?.['data-dsh-diff-files-preview-mode'] !== undefined).length === 1)
+findAll(fileTree, node => node.props?.['data-dsh-diff-files-preview-mode'] !== undefined)[0].props.onClick()
+await settle(2)
+await showFiles()
+check('switching back renders the preview again', findAll(fileTree, node => node.props?.['data-markdown'] !== undefined).length === 1, textOf(fileTree))
+
+/* An HTML document gets a frame that cannot run scripts, pointed at the raw
+ * route — this origin serves the bytes, so the sandbox is the whole defence.
+ * (`src` is already expanded by the earlier part of this block; clicking a
+ * directory row would collapse it.) */
+treeRows().find(node => node.props['data-path'] === 'src/page.html').props.onClick()
+await settle(4)
+await showFiles()
+const frame = findAll(fileTree, node => node.props?.['data-dsh-diff-files-frame'] === 'src/page.html')[0]
+check('html opens in a frame', frame !== undefined, textOf(fileTree))
+check('the frame is sandboxed with no scripts', frame?.props.sandbox === '' && String(frame?.props.src).includes('/api/dsh-diff/raw'), JSON.stringify({ sandbox: frame?.props.sandbox, src: frame?.props.src }))
+check('the frame says it is sandboxed', textOf(fileTree).includes('沙箱'), textOf(fileTree))
+/* Back to the markdown tab, in EDIT mode — that is what the save, conflict and
+ * close assertions below are about. */
+findAll(fileTree, node => node.props?.['className'] === 'dshdv-fvTabName' && node.props?.['title'] === 'README.md')[0].props.onClick()
+await settle(2)
+await showFiles()
+findAll(fileTree, node => node.props?.['data-dsh-diff-files-edit-mode'] !== undefined)[0].props.onClick()
+await settle(2)
+await showFiles()
 
 editorFor('README.md').props.onInput({ target: { value: '# hello\nworld\nedited\n' } })
 await settle(2)
@@ -1730,6 +1797,34 @@ await settle(4)
 await showFiles()
 check('a binary file gets no editor', editorFor('src/binary.bin') === undefined)
 check('and says why', textOf(fileTree).includes('二进制文件'), textOf(fileTree))
+
+/* The read-only types are handed to the shell's own previewer, which owns the
+ * renderers (images, PDFs, office, spreadsheets) this pane deliberately does not
+ * re-draw. The address is the shell's grammar, built here. */
+shellOpens.length = 0
+const delegateButton = findAll(fileTree, node => node.props?.['data-dsh-diff-files-open-shell'] === 'src/binary.bin')[0]
+check('a type this pane cannot show offers the shell previewer', delegateButton !== undefined, textOf(fileTree))
+delegateButton?.props.onClick()
+await settle(2)
+check('the hand-off uses the shell\'s file address', shellOpens[0] === 'dsh-resource://file/session/sess-1/src/binary.bin', JSON.stringify(shellOpens))
+check('and the pane offers a download as well', findAll(fileTree, node => node.props?.['data-dsh-diff-files-download'] === 'src/binary.bin').length === 1)
+
+// The hand-off also rides the editor head, for the types that do have an editor.
+shellOpens.length = 0
+findAll(fileTree, node => node.props?.['data-dsh-diff-files-open-shell-head'] !== undefined)[0].props.onClick()
+await settle(2)
+check('the head can hand the active file over too', shellOpens.length === 1 && String(shellOpens[0]).startsWith('dsh-resource://file/session/sess-1/'), JSON.stringify(shellOpens))
+
+/* A shell that cannot take the hand-off is a result, not a crash: the pane says
+ * so instead of failing silently. */
+services.set('sidebarRight', undefined)
+shellOpens.length = 0
+findAll(fileTree, node => node.props?.['data-dsh-diff-files-open-shell-head'] !== undefined)[0].props.onClick()
+await settle(2)
+await showFiles()
+check('a missing shell previewer is reported, not thrown', shellOpens.length === 0, JSON.stringify(shellOpens))
+check('and the failure is shown to the reader', findAll(fileTree, node => node.props?.['data-dsh-diff-files-open-failed'] !== undefined).length === 1, textOf(fileTree))
+services.set('sidebarRight', { openResource(address) { shellOpens.push(address) } })
 
 // The highlight toggle renders the shell's own code card — for a TEXT tab; a
 // binary tab has no highlighted view to offer, only its "not editable" notice.
