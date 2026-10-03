@@ -1351,6 +1351,16 @@ check('a row shows the branch and tag pointing at it', textOf(commitRows()[0]).i
 check('a row counts what it changed', textOf(commitRows()[0]).includes('3 个文件') && textOf(commitRows()[0]).includes('+12') && textOf(commitRows()[0]).includes('−4'), textOf(commitRows()[0]))
 check('a merge says so', textOf(commitRows()[1]).includes('合并'), textOf(commitRows()[1]))
 check('the hover text carries what the row cannot fit', String(commitRows()[0].props.title).includes('he.xiaoyu@163.com') && String(commitRows()[0].props.title).includes('main'), JSON.stringify(commitRows()[0].props.title))
+/* The tooltip must not repeat the subject: a tooltip as wide as the row it
+ * belongs to covers the row below, which is the one the reader is about to read. */
+check('and it does not repeat the subject already on the row', !String(commitRows()[0].props.title).includes('tighten the parser'), JSON.stringify(commitRows()[0].props.title))
+
+/* Commit rows are two lines tall, so they must not touch: the hover and selected
+ * fills read as one continuous block otherwise. */
+const historyListRule = /^\.dshdv-gitHistory \.dshdv-listBody\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
+check('the history list leaves air between its rows', historyListRule.includes('gap:'), historyListRule)
+const commitRowRule = /^\.dshdv-commitRow\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
+check('and a commit row spaces its own two lines', commitRowRule.includes('gap:'), commitRowRule)
 
 /* From early to late, or late to early — the reader's choice, remembered. */
 const orderButton = () => findAll(tree, node => node.props?.['data-dsh-diff-order'] !== undefined)[0]

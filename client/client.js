@@ -735,8 +735,12 @@ window.__ModuleLoader__.load({
 			'.dshdv-grip:hover::after,.dshdv-grip:focus-visible::after{background:var(--dsw-alias-state-business-primary,#3b6cf6)}',
 			'.dshdv-grip:focus-visible{outline:none}',
 			'.dshdv-grip[data-dragging="true"]::after{background:var(--dsw-alias-state-business-primary,#3b6cf6)}',
+			/* The history list spaces its rows; the file list below it abuts them, the way
+			 * the shell's own tree does. Rows that carry two lines of text cannot touch:
+			 * the hover and selected fills read as one continuous block otherwise. */
+			'.dshdv-gitHistory .dshdv-listBody{display:flex;flex-direction:column;gap:3px}',
 			/* A commit row: the subject takes the room, the id and the date stay put. */
-			'.dshdv-commitRow{display:flex;flex-direction:column;gap:2px;width:100%;min-width:0;padding:7px 10px;border:0;border-radius:var(--dsw-radius-md,12px);background:transparent;text-align:left;font:inherit;color:var(--dsw-alias-label-primary,#1b1f24);cursor:pointer}',
+			'.dshdv-commitRow{display:flex;flex-direction:column;gap:3px;width:100%;min-width:0;padding:6px 10px;border:0;border-radius:var(--dsw-radius-md,12px);background:transparent;text-align:left;font:inherit;color:var(--dsw-alias-label-primary,#1b1f24);cursor:pointer}',
 			'.dshdv-commitRow:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}',
 			'.dshdv-commitRow[aria-selected="true"]{background:var(--dsw-alias-interactive-bg-active,var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.08)))}',
 			'.dshdv-commitRow:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#3b6cf6);outline-offset:1px}',
@@ -3054,8 +3058,11 @@ window.__ModuleLoader__.load({
 						 * when, which branches or tags point at it, whether it is a merge,
 						 * and how much it changed. All of it comes from the one `git log`
 						 * the list read — no extra process per row. */
+						/* The hover text repeats nothing the row already shows: the subject
+						 * is right there, and a tooltip that repeats it is a tooltip that
+						 * covers the row below. What it adds is the address, the absolute
+						 * time, and the decorations. */
 						var hover = [
-							entry.subject,
 							entry.author + (entry.email === undefined || entry.email === '' ? '' : ' <' + entry.email + '>'),
 							absoluteTime(entry.at),
 							entry.refs.length === 0 ? '' : entry.refs.join(', '),
