@@ -287,6 +287,22 @@ check('the ghosted textarea keeps a visible caret', ...)   // 字形透明但光
 - 几何值放在容器的 CSS 变量上（`--dshdv-left-w`、`--dshdv-left-split`）：拖动时**每次 pointermove 只写一个变量，不触发 React 渲染**，松手时才落一次状态并持久化（`dsh-diff-view.leftWidth` / `.leftSplit`）。
 - 上下的比例**按百分比存**，所以改窗口大小不会把布局弄坏；宽度按像素存，并有上下限（180–720px，且不超过容器的 70%）。
 - 单位混用是这一版的真实 bug：第一版把"像素位移"加到"百分比"上，分隔条会跳到荒谬的值 —— 现在手势内部一律用像素，只在存储时换算成比例。
+## 空窗格不该是滚动容器
+
+截图里的现象：窗格已经空了（"当前范围没有改动"），右侧却仍有一条滚动条槽。成因是**真的溢出**，不是观感问题：
+
+```css
+.dshdv-status{height:100%; padding:24px}   /* 没有 border-box → 比窗格高出 48px */
+.dshdv-listBody{overflow:auto; scrollbar-gutter:stable}  /* 且常驻保留滚动条槽 */
+```
+
+于是空状态把自己撑出了滚动条，而 `scrollbar-gutter:stable` 让那条槽永远可见。两处一起修：
+
+1. **结构**：没有内容要列时**根本不渲染滚动容器** —— 状态块直接作为窗格的孩子（`.dshdv-paneEmpty{overflow:hidden}`）。没有滚动容器，就没有滚动条、也没有槽。有内容时才渲染 `.dshdv-listBody`。
+2. **防御**：`.dshdv-status` 加 `box-sizing:border-box; min-height:0` —— 无论它将来被放进什么容器，都不可能再因为"高度 100% + 内边距"而溢出。
+3. 列表**内部**的提示（例如历史读取失败）改用 `.dshdv-statusInline`（`height:auto`），否则它会占满整屏、把上面的"工作区"行挤出视野。
+
+护栏：`.dshdv-status` 必须含 `box-sizing:border-box`；空窗格必须 `overflow:hidden` 且**不得**带 `scrollbar-gutter`；并在真实渲染上断言"空列表的元素不带滚动类、有行时才是滚动容器"。
 ## 自动刷新：默认关闭（一次设计缺陷的修正）
 
 第一版是这样写的：**活跃时每 4 秒**读一次，20 秒退到慢速，而"活跃"= 距上次交互**或上次读到新数据** 30 秒内。最后半句是致命的 —— 我写了一个 `[state.phase, state.files.length]` 的 effect，于是**每次刷新读到新数据又把自己标记为活跃**，退化成慢速这件事永远不会发生：4 秒轮询自我续命，永久跑下去。逐轮页签同样（8 秒无条件，外加同样的自我续命）。
@@ -423,7 +439,7 @@ dsh plugin add link:F:/deepseek_harness_workspace/dsh-diff-view
 
 ```bash
 node tools/test-host.mjs      # 176 项：解析器对真实 git 输出、路由行为、会话折叠与兜底、围栏
-node tools/smoke-client.mjs   # 302 项：契约、注册、渲染、交互、失败态
+node tools/smoke-client.mjs   # 308 项：契约、注册、渲染、交互、失败态
 npm test                      # 两个都跑
 ```
 

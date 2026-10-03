@@ -1506,6 +1506,32 @@ storage.set('dsh-diff-view.leftWidth', '300')
 ignored.props.onKeyDown({ key: 'a', preventDefault() {} })
 check('a key that is not an arrow changes nothing', storage.get('dsh-diff-view.leftWidth') === '300', String(storage.get('dsh-diff-view.leftWidth')))
 
+/* An EMPTY pane must not be a scroll container. The status block used to be
+ * `height:100%` PLUS 24px of padding (no border-box), so it measured 48px taller
+ * than the pane it filled and the pane scrolled over nothing — a scrollbar, and
+ * with a stable gutter a permanent strip down its edge. Two guards: the status
+ * cannot overflow, and an empty pane renders no scroller at all. */
+const statusRule = /^\.dshdv-status\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
+check('a status block cannot overflow the pane it fills', statusRule.includes('box-sizing:border-box') && statusRule.includes('min-height:0'), statusRule)
+const emptyRule = /^\.dshdv-paneEmpty\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
+check('an empty pane clips rather than scrolls', emptyRule.includes('overflow:hidden'), emptyRule)
+check('and it is given no scrollbar gutter', !emptyRule.includes('scrollbar-gutter'), emptyRule)
+
+/* The structural half, on a real render: with nothing to list, the element the
+ * pane shows must not carry the scrolling class. */
+responses.set(FILES_GIT, { ok: true, scope: 'git', cwd: 'F:/ws', repo: 'F:/ws', files: [], added: 0, deleted: 0, turns: [] })
+const emptyController = registrations[0].options.inject('sess-1').controller
+await emptyController.load('sess-1')
+tree = await rerender(viewElement())
+const emptyList = findAll(tree, node => node.props?.['data-dsh-diff-list'] !== undefined)[0]
+check('an empty file list is not a scroll container', emptyList !== undefined && String(emptyList.props.className).includes('dshdv-paneEmpty') && !String(emptyList.props.className).includes('dshdv-listBody'), JSON.stringify(emptyList?.props.className))
+check('it still says why it is empty', textOf(emptyList ?? tree).includes('当前范围没有改动'), textOf(emptyList ?? tree))
+responses.set(FILES_GIT, GIT_LIST)
+await emptyController.load('sess-1')
+tree = await rerender(viewElement())
+const filledList = findAll(tree, node => node.props?.['data-dsh-diff-list'] !== undefined)[0]
+check('a list WITH rows is the scroll container', String(filledList?.props.className).includes('dshdv-listBody'), JSON.stringify(filledList?.props.className))
+
 console.log('\nthe per-turn browser')
 const TurnsView = registrations[1].component
 const turnFace = registrations[1].options.inject('sess-1')

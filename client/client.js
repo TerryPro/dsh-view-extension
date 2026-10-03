@@ -777,6 +777,10 @@ window.__ModuleLoader__.load({
 			'.dshdv-dirName{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--dsw-alias-label-tertiary,#8b939e)}',
 			'.dshdv-counts{flex:none;display:inline-flex;gap:4px;font-size:11px;font-variant-numeric:tabular-nums}',
 			'.dshdv-body{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;overflow:hidden}',
+			/* A pane with nothing to list is NOT a scroller: the status fills the pane
+			 * and no scroll container is rendered at all, so there is neither a
+			 * scrollbar nor a reserved gutter to look at. */
+			'.dshdv-paneEmpty{display:flex;flex:1 1 auto;min-height:0;min-width:0;overflow:hidden}',
 			'.dshdv-head{flex:none;display:flex;align-items:center;gap:8px;padding:0 8px 0 16px;border-bottom:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.08));height:38px;box-sizing:border-box}',
 			'.dshdv-headPath{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}',
 			'.dshdv-headTools{flex:none;display:inline-flex;gap:2px}',
@@ -810,8 +814,14 @@ window.__ModuleLoader__.load({
 			'.dshdv-splitCell[data-kind="add"]{color:var(--dsw-alias-state-success-primary,#1a7f37);background:var(--dsw-alias-code-diff-added,rgba(34,197,94,.08))}',
 			'.dshdv-splitCell[data-kind="del"]{color:var(--dsw-alias-state-error-primary,#c0392b);background:var(--dsw-alias-code-diff-deleted,rgba(220,38,38,.08))}',
 			'.dshdv-splitCell[data-empty="true"]{background:transparent}',
-			'.dshdv-status{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;height:100%;padding:24px;text-align:center;color:var(--dsw-alias-label-secondary,#5b636e);font-size:var(--dsh-content-font-size-secondary,13px)}',
+			/* `border-box` is load-bearing where a status sits inside a scroller: with
+			 * `height:100%` AND 24px of padding it measured 48px taller than its pane,
+			 * so an EMPTY pane could be scrolled — a scrollbar over nothing. */
+			'.dshdv-status{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;box-sizing:border-box;height:100%;min-height:0;padding:24px;text-align:center;color:var(--dsw-alias-label-secondary,#5b636e);font-size:var(--dsh-content-font-size-secondary,13px)}',
 			'.dshdv-status p{margin:0;max-width:44ch;line-height:1.6}',
+			/* The same notice INSIDE a list: it must not claim the pane's whole height,
+			 * or the rows above it would be pushed out of view. */
+			'.dshdv-statusInline{height:auto;min-height:0;padding:12px 16px;gap:6px}',
 			/* Every scrolling region a pane can hold ends above the floating composer:
 			 * the shell's own trajectory ledger reserves the same band. */
 			'.dshdv-listBody,.dshdv-scroll,.dshdv-tvListBody,.dshdv-tvSaid,.dshdv-tvFileList{padding-bottom:var(--dshdv-bottom-clearance)}',
@@ -3030,7 +3040,7 @@ window.__ModuleLoader__.load({
 								: format(t('summary.files'), { count: files.length })))),
 				];
 				if (state.historyPhase === 'error') {
-					historyRows.push(h('div', { key: 'error', className: 'dshdv-status' },
+					historyRows.push(h('div', { key: 'error', className: 'dshdv-status dshdv-statusInline' },
 						h('p', null, t(state.historyError === null ? 'error.generic' : state.historyError)),
 						h('button', {
 							type: 'button', className: 'dshdv-btn',
@@ -3079,10 +3089,44 @@ window.__ModuleLoader__.load({
 				}
 				historyBody = historyRows;
 			}
+			/**
+			 * One pane's body: a scrolling list when there are rows, and the status on
+			 * its own when there are none.
+			 *
+			 * The distinction is not cosmetic. A scroll container around a status that
+			 * fills it produces a scrollbar over nothing (and, with a stable gutter, a
+			 * permanent strip down the edge), which reads as a broken pane. So the
+			 * scroller only exists when there is something to scroll.
+			 *
+			 * @param options - `{ attribute, label, rows, status }`.
+			 * @returns the pane body element.
+			 */
+			function paneBodyOf(options) {
+				if (!options.rows) {
+					return h('div', {
+						className: 'dshdv-paneEmpty',
+						role: 'listbox',
+						'aria-label': options.label,
+						[options.attribute]: '',
+					}, options.status);
+				}
+				return h('div', {
+					className: 'dshdv-listBody',
+					role: 'listbox',
+					'aria-label': options.label,
+					[options.attribute]: '',
+				}, options.status);
+			}
+
 			var historyPane = h('div', { className: 'dshdv-gitHistory' },
-				h('div', {
-					className: 'dshdv-listBody', role: 'listbox', 'aria-label': t('history.label'), 'data-dsh-diff-history': '',
-				}, historyBody));
+				paneBodyOf({
+					attribute: 'data-dsh-diff-history',
+					label: t('history.label'),
+					/* The working-tree row needs no repository, so the history column has
+					 * rows in every state except while it is still reading. */
+					rows: state.historyPhase !== 'loading',
+					status: historyBody,
+				}));
 
 			/* The files of whatever is selected: a commit's own files, or the working
 			 * tree's changed files. */
@@ -3114,9 +3158,12 @@ window.__ModuleLoader__.load({
 				});
 			}
 			var filesPane = h('div', { className: 'dshdv-gitFiles' },
-				h('div', {
-					className: 'dshdv-listBody', role: 'listbox', 'aria-label': t('view.label'), 'data-dsh-diff-list': '',
-				}, filesBody));
+				paneBodyOf({
+					attribute: 'data-dsh-diff-list',
+					label: t('view.label'),
+					rows: listPhase === 'ready' && listed.length > 0,
+					status: filesBody,
+				}));
 			/**
 			 * The detail pane: the selected file's comparison behind its header.
 			 *
