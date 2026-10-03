@@ -99,6 +99,12 @@ window.__ModuleLoader__.load({
 		 * reads do.
 		 */
 		var SCOPE_KEY = NAMESPACE + '.scope';
+		/** How narrow, and how wide, the file tree may be dragged. */
+		var TREE_WIDTH_MIN = 140;
+		var TREE_WIDTH_MAX = 560;
+		/** Where the file tree's width lives, so a reader's layout survives a reload. */
+		var TREE_WIDTH_KEY = NAMESPACE + '.treeWidth';
+
 		/** Where the two divider positions live, so a reader's layout survives a reload. */
 		var LEFT_WIDTH_KEY = NAMESPACE + '.leftWidth';
 		/** The share of the left column given to the commit list, as a percentage. */
@@ -309,6 +315,7 @@ window.__ModuleLoader__.load({
 				'push.failed': '推送失败：{detail}',
 				'layout.leftWidth': '调整左栏宽度',
 				'layout.leftSplit': '调整历史与文件的高度',
+				'layout.treeWidth': '调整文件树宽度',
 				'list.empty': '当前范围没有改动',
 				'list.emptyFiltered': '没有匹配的文件',
 				'list.loading': '正在读取改动…',
@@ -472,6 +479,7 @@ window.__ModuleLoader__.load({
 				'push.failed': 'Push failed: {detail}',
 				'layout.leftWidth': 'Resize the left column',
 				'layout.leftSplit': 'Resize history against files',
+				'layout.treeWidth': 'Resize the file tree',
 				'list.emptyFiltered': 'No file matches the filter',
 				'list.loading': 'Reading changes…',
 				'diff.empty': 'Pick a file on the left to see its comparison',
@@ -667,7 +675,10 @@ window.__ModuleLoader__.load({
 			 * FilesBody.module.css): 18px per level, 28px tool boxes, the shared
 			 * interactive fill for hover/selection, `scrollbar-gutter: stable` so the
 			 * tree does not shift when a level grows a scrollbar. */
-			'.dshdv-fvTree{display:flex;flex-direction:column;flex:0 0 236px;min-width:0;min-height:0;border-right:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.08))}',
+			/* The tree's width is the reader's to set, and it lives in a custom property
+			 * on the view — so a drag writes one variable per pointer move and React
+			 * renders nothing until the gesture ends. */
+			'.dshdv-fvTree{display:flex;flex-direction:column;flex:0 0 auto;width:var(--dshdv-tree-w,236px);min-width:0;min-height:0;border-right:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.08))}',
 			/* The tree header and rows are the shell's files-panel geometry, number
 			 * for number (`ui-sidebar-files` FilesBody.module.css): a 38px header row
 			 * with a hairline underneath, 18px of indent per level, rows that abut so
@@ -4707,6 +4718,16 @@ window.__ModuleLoader__.load({
 			var state = React.useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
 			var activeUntil = React.useRef(0);
 			var markActive = function () { activeUntil.current = Date.now() + TURNS_ACTIVE_MS; };
+			/* The tree's width: state for rendering, a ref for the gesture — a drag must
+			 * not wait for a render to know where it started. */
+			var treeWidthState = React.useState(function () {
+				var stored = Number(readPreference(TREE_WIDTH_KEY, ''));
+				return Number.isFinite(stored) && stored >= TREE_WIDTH_MIN ? Math.min(TREE_WIDTH_MAX, stored) : 236;
+			});
+			var treeWidth = treeWidthState[0];
+			var setTreeWidth = treeWidthState[1];
+			var rootRef = React.useRef(null);
+			var treeWidthRef = React.useRef(treeWidth);
 			/* MarkdownText memoizes its vocabulary; a fresh labels object each render
 			 * would discard its cache — the same rule the shell's chat view follows. */
 			var markdownLabels = React.useMemo(function () {
@@ -5013,9 +5034,50 @@ window.__ModuleLoader__.load({
 							void controller.refreshLevel(sessionId, '');
 						},
 					}, icon(ICON_REFRESH))),
-				h('div', { className: 'dshdv-main' },
+				h('div', {
+					className: 'dshdv-main',
+					ref: rootRef,
+					style: { '--dshdv-tree-w': String(Math.round(treeWidth)) + 'px' },
+				},
 					h('div', { className: 'dshdv-fvTree' },
 						h('div', { className: 'dshdv-fvTreeBody', role: 'tree', 'aria-label': t('files.label'), 'data-dsh-diff-files-tree': '' }, listBody)),
+					/* The tree's divider: the same gesture the history browser's two
+					 * dividers use — pointer drag writes the custom property, the release
+					 * persists the choice, and the arrow keys reach it without a pointer. */
+					h('div', {
+						className: 'dshdv-grip dshdv-gripV',
+						role: 'separator',
+						'aria-orientation': 'vertical',
+						'aria-label': t('layout.treeWidth'),
+						'data-dsh-diff-grip': 'tree',
+						tabIndex: 0,
+						'aria-valuenow': Math.round(treeWidth),
+						onPointerDown: dividerDrag({
+							axis: 'x',
+							container: function () { return rootRef.current; },
+							startValue: function () { return treeWidthRef.current; },
+							clamp: function (value) {
+								var room = rootRef.current === null ? undefined : rootRef.current.clientWidth;
+								var widest = typeof room === 'number' && room > 0 ? Math.min(TREE_WIDTH_MAX, room * 0.6) : TREE_WIDTH_MAX;
+								return Math.max(TREE_WIDTH_MIN, Math.min(widest, value));
+							},
+							apply: function (node, value) { node.style.setProperty('--dshdv-tree-w', String(Math.round(value)) + 'px'); },
+							onCommit: function (value) {
+								treeWidthRef.current = value;
+								setTreeWidth(value);
+								writePreference(TREE_WIDTH_KEY, String(Math.round(value)));
+							},
+						}),
+						onKeyDown: function (event) {
+							var step = event.key === 'ArrowLeft' ? -16 : event.key === 'ArrowRight' ? 16 : 0;
+							if (step === 0) return;
+							event.preventDefault();
+							var next = Math.max(TREE_WIDTH_MIN, Math.min(TREE_WIDTH_MAX, treeWidthRef.current + step));
+							treeWidthRef.current = next;
+							setTreeWidth(next);
+							writePreference(TREE_WIDTH_KEY, String(Math.round(next)));
+						},
+					}),
 					h('div', { className: 'dshdv-fvMain' },
 						tabStrip,
 						h('div', { className: 'dshdv-fvEditor' }, editorHead, openNotice, conflictBar, editor))));

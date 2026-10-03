@@ -201,6 +201,11 @@ if (locales.has(localeKey(locale))) throw new Error(`locale namespace "${ns}" al
 ```
 
 `CodeBlock`、`FileDiff`、消息里的代码全用它。现在编辑器正文、行号槽、面板也都用**同一条简写**（`.cm-scroller` 与 `.cm-content` 都要设：CodeMirror 自带主题在 content 上声明了 monospace 与行高，不覆盖就会赢）。
+#### 文件树的宽度也能拖（复用同一条分隔条机制）
+
+文件树原来固定 236px。现在它和 Git 浏览器那两条分隔条**走同一套机制**：`--dshdv-tree-w` 一个 CSS 变量 → 拖动时每次 pointermove 只写变量、不触发渲染 → 松手落一次状态并持久化（`dsh-diff-view.treeWidth`）→ 方向键也能调（←/→，16px 一步）→ 上下限 140–560px（且不超过视图宽的 60%）。
+
+这就是把"约定"变成机制的好处：**新加的第三条分隔条没有新逻辑**，只是又一个 `dividerDrag({axis:'x', …})`。护栏同样复用了那套断言（写变量、跟随指针、持久化、键盘上下限）。
 ### 专业化的那几项（在外壳自己的词汇里）
 
 | 加了什么 | 说明 |
@@ -523,7 +528,7 @@ dsh plugin add link:F:/deepseek_harness_workspace/dsh-diff-view
 ```bash
 node tools/test-host.mjs      # 191 项
 node tools/test-editor-chunk.mjs  # 33 项（CodeMirror 分块产物：注册、导出面、语法映射、缩进推断）：解析器对真实 git 输出、路由行为、会话折叠与兜底、围栏
-node tools/smoke-client.mjs   # 321 项（兜底编辑器）：契约、注册、渲染、交互、失败态
+node tools/smoke-client.mjs   # 329 项（兜底编辑器）：契约、注册、渲染、交互、失败态
 npm test                      # 两个都跑
 ```
 

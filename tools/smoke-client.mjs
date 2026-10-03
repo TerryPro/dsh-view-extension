@@ -2184,6 +2184,51 @@ check('each icon names itself for a reader who hovers or listens', modeIcons.eve
 check('and the copy survives a shell dictionary frozen at an older bundle', JSON.stringify(modeIcons.map(node => node.props.title)) === JSON.stringify(['预览', '并排', '编辑']), JSON.stringify(modeIcons.map(node => node.props.title)))
 fileTree = await showFiles()
 
+/* The file tree's width is the reader's to set, with the same gesture the history
+ * browser's dividers use: the pointer writes the container's custom property (a
+ * style write per move, no render), the release persists the choice, and the arrow
+ * keys reach it without a pointer. */
+/* Its own mount: the tree's divider must be checked on a tree this block rendered,
+ * not on whatever the previous section happened to leave in `fileTree`. */
+unmount.disposeControllers = true
+unmount()
+seedFiles()
+const treeFace = registrations[2].options.inject('sess-1')
+let treeWidthTree = await render(React.createElement(FilesView, Object.assign({}, viewProps, treeFace)))
+await settle(4)
+treeWidthTree = await rerender(React.createElement(FilesView, Object.assign({}, viewProps, treeFace)))
+const treeGrip = () => findAll(treeWidthTree, node => node.props?.['data-dsh-diff-grip'] === 'tree')[0]
+check('the file tree has a divider', treeGrip() !== undefined && treeGrip().props.role === 'separator' && treeGrip().props['aria-orientation'] === 'vertical', JSON.stringify(treeGrip()?.props['aria-orientation']))
+const treeRule = /^\.dshdv-fvTree\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
+check('and its width comes from a variable, not a fixed number', treeRule.includes('width:var(--dshdv-tree-w'), treeRule)
+const treeHost = findAll(treeWidthTree, node => node.props?.className === 'dshdv-main')[0]
+check('the width starts from this browser\'s last choice', String(treeHost?.props?.style?.['--dshdv-tree-w']) === '236px', JSON.stringify(treeHost?.props?.style))
+
+storage.delete('dsh-diff-view.treeWidth')
+const treeWrites = []
+const noteTreeWrites = node => {
+  const inner = node.style.setProperty.bind(node.style)
+  node.style.setProperty = (name, value) => { treeWrites.push(`${name}=${value}`); inner(name, value) }
+}
+treeHost.clientWidth = 1000
+noteTreeWrites(treeHost)
+treeGrip().props.onPointerDown({ button: 0, clientX: 200, pointerId: 9, preventDefault() {}, currentTarget: { setAttribute() {}, setPointerCapture() {} } })
+const treeMove = [...windowListeners.get('pointermove')].slice(-1)[0]
+treeMove({ clientX: 320 })
+check('dragging the tree divider writes the width variable', treeWrites.some(entry => entry.startsWith('--dshdv-tree-w=')), JSON.stringify(treeWrites))
+treeMove({ clientX: 320 })
+check('and it follows the pointer', treeWrites[treeWrites.length - 1] === '--dshdv-tree-w=356px', JSON.stringify(treeWrites[treeWrites.length - 1]))
+;[...windowListeners.get('pointerup')].slice(-1)[0]()
+check('releasing persists the width', storage.get('dsh-diff-view.treeWidth') === '356', String(storage.get('dsh-diff-view.treeWidth')))
+
+/* A drag that would squeeze the tree out of existence stops at its floor. */
+const treeGripNow = () => findAll(treeWidthTree, node => node.props?.['data-dsh-diff-grip'] === 'tree')[0]
+for (let step = 0; step < 40; step += 1) treeGripNow().props.onKeyDown({ key: 'ArrowLeft', preventDefault() {} })
+check('shrinking past the floor stops at the minimum', Number(storage.get('dsh-diff-view.treeWidth')) === 140, String(storage.get('dsh-diff-view.treeWidth')))
+for (let step = 0; step < 60; step += 1) treeGripNow().props.onKeyDown({ key: 'ArrowRight', preventDefault() {} })
+check('and growing past the ceiling stops at the maximum', Number(storage.get('dsh-diff-view.treeWidth')) === 560, String(storage.get('dsh-diff-view.treeWidth')))
+storage.delete('dsh-diff-view.treeWidth')
+
 console.log('\nrow rhythm (every list in the plugin)')
 /* One convention rather than three patches: a list of rows never lets its rows
  * touch. Two lines of text read as a single slab otherwise, and a hover fill that
