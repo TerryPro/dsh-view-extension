@@ -755,6 +755,12 @@ window.__ModuleLoader__.load({
 		var ICON_EXTERNAL = [['M9.5 3.5h3v3'], ['M12.5 3.5 7.5 8.5'], ['M11 9.5v3h-7v-7h3']];
 		/** Syntax colors on/off: the classic "A" over a brush stroke. */
 		var ICON_HIGHLIGHT = [['M3.5 12.5h9'], ['M9.6 3.6 12.4 6.4'], ['M4.2 11.8 9.6 3.6l2.8 2.8-6.2 5.4-2 .6z']];
+		/** Preview: an eye. */
+		var ICON_PREVIEW = [['M1.8 8s2.6-3.8 6.2-3.8S14.2 8 14.2 8s-2.6 3.8-6.2 3.8S1.8 8 1.8 8z'], ['M6.4 8a1.6 1.6 0 1 0 3.2 0 1.6 1.6 0 1 0-3.2 0']];
+		/** Side by side: one frame divided down the middle. */
+		var ICON_SPLIT = [['M2.5 3.5h11v9h-11z'], ['M8 3.5v9']];
+		/** Edit: a pencil. */
+		var ICON_PENCIL = [['M3.5 12.5h3l6.4-6.4-3-3-6.4 6.4z'], ['M10.4 2.6 12 1l3 3-1.6 1.6z']];
 
 		/* ------------------------------------------------------------------ *
 		 * Small helpers
@@ -3552,7 +3558,7 @@ window.__ModuleLoader__.load({
 		function CodeEditor(props) {
 			var path = props.path;
 			var text = props.text;
-			var t = props.t;
+			var t = props.tr === undefined ? props.t : props.tr;
 			var language = languageForPath === null ? undefined : languageForPath(path);
 			/* A hook cannot be called conditionally, so the module-level binding is
 			 * called either way: without the shell's highlighter it is a no-op that
@@ -3658,7 +3664,11 @@ window.__ModuleLoader__.load({
 		function FilesView(props) {
 			var controller = props.controller;
 			var sessionId = props.sessionId;
-			var t = props.t;
+			/* This plugin's own translator, passed in by `inject`. The shell's `t` is
+			 * bound to the dictionary registered when the namespace was FIRST loaded,
+			 * so a key added by a later bundle resolves to itself there; ours falls
+			 * back to the copy that shipped with THIS bundle. */
+			var t = props.tr === undefined ? props.t : props.tr;
 			var openInShell = props.openInShell === undefined ? function () { return false; } : props.openInShell;
 			/** Ask the shell to preview a file, and say so when it cannot. */
 			var handOver = function (path) {
@@ -3888,18 +3898,21 @@ window.__ModuleLoader__.load({
 				status === null ? null : h('span', { className: 'dshdv-fvStatus', 'data-dsh-diff-files-status': '' }, status),
 				/* One segmented control, and only for Markdown: preview, side by side,
 				 * edit. Code files have a single surface — the highlighted editor — so
-				 * they get no switch to nowhere. */
+				 * they get no switch to nowhere. Icon-only, like every other control in
+				 * this head: the label lives in the tooltip and the accessible name. */
 				activeKind === MARKDOWN_VIEW
 					? h('span', { className: 'dshdv-fvModes', role: 'group', 'aria-label': t('files.mode') },
-						[['preview', 'files.mode.preview'], ['split', 'files.mode.split'], ['edit', 'files.mode.edit']].map(function (entry) {
+						[['preview', 'files.mode.preview', ICON_PREVIEW], ['split', 'files.mode.split', ICON_SPLIT], ['edit', 'files.mode.edit', ICON_PENCIL]].map(function (entry) {
 							return h('button', {
 								key: entry[0],
 								type: 'button',
 								className: 'dshdv-btn',
 								'data-dsh-diff-files-mode': entry[0],
 								'aria-pressed': activeMode === entry[0],
+								title: t(entry[1]),
+								'aria-label': t(entry[1]),
 								onClick: function () { controller.setMode(activePath, entry[0]); },
-							}, t(entry[1]));
+							}, icon(entry[2]));
 						}))
 					: null,
 				/* Colors in the editor are a preference, not a mode: code is edited
@@ -3990,8 +4003,20 @@ window.__ModuleLoader__.load({
 		function createTranslator(ctx) {
 			var fallback = STRINGS.zh;
 			var bound;
+			/* Registering and binding are separate attempts on purpose. The locale
+			 * service REFUSES a second registration of the same namespace+locale
+			 * ("already has locale zh"), which is exactly what a plugin reload does —
+			 * and it then keeps the dictionary from the FIRST load. Sharing one
+			 * try-block would leave `bound` undefined after every reload, and worse,
+			 * the shell's own copy would stay frozen at that first dictionary: a key
+			 * added later resolves to itself. Binding anyway is what lets the fallback
+			 * below carry the new copy. */
 			try {
 				ctx.locale.register(NAMESPACE, STRINGS);
+			} catch (error) {
+				console.warn('[dsh-diff-view] keeping the shell\'s existing dictionary:', error);
+			}
+			try {
 				bound = ctx.locale.bind(NAMESPACE);
 			} catch (error) {
 				console.error('[dsh-diff-view] locale unavailable:', error);
@@ -4080,7 +4105,7 @@ window.__ModuleLoader__.load({
 							locale: NAMESPACE,
 							label: function () { return t('view.label'); },
 							inject: function (sessionId) {
-								return { controller: controllerFor(sessionId) };
+								return { controller: controllerFor(sessionId), tr: t };
 							},
 						}, DiffView);
 					});
@@ -4102,7 +4127,7 @@ window.__ModuleLoader__.load({
 							locale: NAMESPACE,
 							label: function () { return t('turns.label'); },
 							inject: function (sessionId) {
-								return { controller: turnsFor(sessionId) };
+								return { controller: turnsFor(sessionId), tr: t };
 							},
 						}, TurnsView);
 					});
@@ -4126,6 +4151,7 @@ window.__ModuleLoader__.load({
 							inject: function (sessionId) {
 								return {
 									controller: filesFor(sessionId),
+									tr: t,
 									openInShell: function (path) { return openFileInShell(sessionId, path); },
 								};
 							},

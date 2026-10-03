@@ -172,6 +172,24 @@ check('a button label never wraps', btnRule.includes('white-space:nowrap'))
 check('the editor head cannot be forced taller by a wrapping label', fileHeadRule.includes('min-height:32px'))
 check('header labels are translated, not raw keys', ...)   // 原始键出现在界面上 = 字典缺条目
 ```
+### 一个隐蔽的陷阱：外壳的字典会被"冻"在第一次加载
+
+现象：模式控件的三个标签显示成 `files.mode.preview` / `files.mode.split` / `files.mode.edit`，而同一行的 `已保存` 正常。
+
+链条是这样的（外壳 `packages/client/locale/src/client/index.ts:399-419`）：
+
+```ts
+if (locales.has(localeKey(locale))) throw new Error(`locale namespace "${ns}" already has locale "${locale}"`)
+```
+
+`register` 对"同一命名空间+同一语言"的**第二次注册直接抛错** —— 而插件重载恰恰就是第二次。抛错后外壳**保留第一次加载时的那份字典**，于是后来新增的键在 `props.t` 里查不到、原样返回键名；`files.saved` 因为第一次就有，所以正常。
+
+两个修法（都已落地）：
+
+1. `register` 与 `bind` **分开 try**。原来共用一个 try，抛错后 `bound` 永远是 `undefined`；
+2. 视图文案**走本插件自己的翻译器**（`inject` 里作为 `tr` 传入）—— 外壳字典缺哪个键，就用随这个包一起发布的字典兜住。这条对"以后再加键"同样有效。
+
+护栏是一条**构造出来的回归测试**：用一个 `t: key => key` 的"冻结字典"渲染，断言标签仍然读出 `预览 / 并排 / 编辑`。
 ### 谁有预览、谁只有编辑器（按你的建议收窄了模型）
 
 | 类型 | 表面 |
@@ -339,7 +357,7 @@ dsh plugin add link:F:/deepseek_harness_workspace/dsh-diff-view
 
 ```bash
 node tools/test-host.mjs      # 155 项：解析器对真实 git 输出、路由行为、会话折叠与兜底、围栏
-node tools/smoke-client.mjs   # 302 项：契约、注册、渲染、交互、失败态
+node tools/smoke-client.mjs   # 305 项：契约、注册、渲染、交互、失败态
 npm test                      # 两个都跑
 ```
 

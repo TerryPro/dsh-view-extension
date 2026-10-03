@@ -1917,6 +1917,36 @@ const fileLabels = findAll(fileTree, node => node.props?.['data-dsh-diff-files-o
 check('header labels are translated, not raw keys', modeLabels.every(label => !label.includes('files.')), JSON.stringify(modeLabels))
 check('and so are the pane actions', fileLabels.every(label => !label.includes('files.')), JSON.stringify(fileLabels))
 
+/* The mode control is icons with a tooltip, and its copy comes from THIS bundle.
+ *
+ * The regression this guards is subtle: the locale service refuses a second
+ * registration of the same namespace+locale and then keeps the dictionary from
+ * the FIRST load, so a key added by a later bundle resolves to itself through the
+ * shell's `t`. Rendering with a `t` that answers with raw keys is exactly that
+ * state — the labels must still read as copy, because they go through the
+ * plugin's own translator. */
+const pluginFace = registrations[2].options.inject('sess-1')
+const frozenFace = Object.assign({}, viewProps, {
+  controller: pluginFace.controller,
+  tr: pluginFace.tr,
+  openInShell: () => true,
+  t: key => key,
+})
+const showFrozen = async () => {
+  frozenTree = await rerender(React.createElement(FilesView, frozenFace), frozenTree)
+}
+let frozenTree = await render(React.createElement(FilesView, frozenFace))
+await settle(6)
+await showFrozen()
+findAll(frozenTree, node => node.props?.['data-path'] === 'README.md' && node.props?.['role'] === 'treeitem')[0].props.onClick()
+await settle(6)
+await showFrozen()
+const modeIcons = findAll(frozenTree, node => node.props?.['data-dsh-diff-files-mode'] !== undefined)
+check('the mode control is icons, not words', modeIcons.length === 3 && modeIcons.every(node => (node.children ?? []).every(child => typeof child !== 'string')), JSON.stringify(modeIcons.map(node => node.children)))
+check('each icon names itself for a reader who hovers or listens', modeIcons.every(node => typeof node.props.title === 'string' && node.props.title !== '' && node.props.title === node.props['aria-label']), JSON.stringify(modeIcons.map(node => node.props.title)))
+check('and the copy survives a shell dictionary frozen at an older bundle', JSON.stringify(modeIcons.map(node => node.props.title)) === JSON.stringify(['预览', '并排', '编辑']), JSON.stringify(modeIcons.map(node => node.props.title)))
+fileTree = await showFiles()
+
 console.log('\nunmount')
 unmount()
 const cleanups = []
