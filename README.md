@@ -190,6 +190,17 @@ if (locales.has(localeKey(locale))) throw new Error(`locale namespace "${ns}" al
 2. 视图文案**走本插件自己的翻译器**（`inject` 里作为 `tr` 传入）—— 外壳字典缺哪个键，就用随这个包一起发布的字典兜住。这条对"以后再加键"同样有效。
 
 护栏是一条**构造出来的回归测试**：用一个 `t: key => key` 的"冻结字典"渲染，断言标签仍然读出 `预览 / 并排 / 编辑`。
+#### 字体：用外壳那条代码字简写，而不是"看起来差不多"
+
+第一版我把编辑器根部设成 `--dsh-content-font-size-secondary`（13px）+ `line-height:1.6`，于是字号与行高都和外壳自己的代码块不同 —— 一眼就能看出"这不是同一个字"。
+
+外壳的代码字只有一条来源：
+
+```css
+--dsw-font-markdown-code-block: 11px/19px var(--ds-font-family-code);
+```
+
+`CodeBlock`、`FileDiff`、消息里的代码全用它。现在编辑器正文、行号槽、面板也都用**同一条简写**（`.cm-scroller` 与 `.cm-content` 都要设：CodeMirror 自带主题在 content 上声明了 monospace 与行高，不覆盖就会赢）。
 ### 专业化的那几项（在外壳自己的词汇里）
 
 | 加了什么 | 说明 |

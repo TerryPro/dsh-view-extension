@@ -56,15 +56,25 @@ const shellTheme = EditorView.theme({
     height: '100%',
     color: 'var(--dsw-alias-label-primary, #1b1f24)',
     backgroundColor: 'var(--dsw-alias-markdown-code-block, var(--dsw-alias-bg-layer-2, #fafafa))',
-    fontSize: 'var(--dsh-content-font-size-secondary, 13px)',
   },
+  /* THE shell's code typography, not an approximation of it: the same shorthand its
+   * own code cards use (`CodeBlock`, `FileDiff`, message code), which is
+   * `11px/19px` in the shell's code family. Sizing the editor at the shell's UI size
+   * instead is what made it read as a different font at a glance — the family was
+   * right, the size and line height were not. Set on `.cm-scroller` AND
+   * `.cm-content`, because CodeMirror's own base theme declares a monospace family
+   * and a line height on the content and would otherwise win. */
   '.cm-scroller': {
-    fontFamily: 'var(--ds-font-family-code, monospace)',
-    lineHeight: '1.6',
+    font: 'var(--dsw-font-markdown-code-block, 11px/19px var(--ds-font-family-code, monospace))',
     overscrollBehavior: 'contain',
   },
-  '.cm-content': { caretColor: 'var(--dsw-alias-label-primary, #1b1f24)', padding: '8px 0' },
-  '.cm-line': { padding: '0 12px' },
+  '.cm-content': {
+    font: 'var(--dsw-font-markdown-code-block, 11px/19px var(--ds-font-family-code, monospace))',
+    lineHeight: '19px',
+    caretColor: 'var(--dsw-alias-label-primary, #1b1f24)',
+    padding: '8px 0',
+  },
+  '.cm-line': { padding: '0 12px', lineHeight: '19px' },
   '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--dsw-alias-label-primary, #1b1f24)' },
   /* The gutters: the muted ink the shell's own file tree uses, and no border of
    * their own — the pane already has one. */
@@ -72,7 +82,7 @@ const shellTheme = EditorView.theme({
     backgroundColor: 'transparent',
     color: 'var(--dsw-alias-label-tertiary, #8b939e)',
     border: 'none',
-    fontSize: '11px',
+    font: 'var(--dsw-font-markdown-code-block, 11px/19px var(--ds-font-family-code, monospace))',
   },
   '.cm-lineNumbers .cm-gutterElement': { padding: '0 8px 0 12px', minWidth: '32px' },
   '.cm-foldGutter .cm-gutterElement': { padding: '0 2px', cursor: 'pointer' },
