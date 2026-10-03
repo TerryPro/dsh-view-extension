@@ -429,8 +429,43 @@ const windowStub = {
 let loaded = null
 windowStub.__ModuleLoader__ = { load(definition) { loaded = definition } }
 
+/**
+ * The shell's UI primitives, standing in for the page's own.
+ *
+ * The bundle REQUIRES these rather than re-implementing them, so a harness that
+ * refused the require would test the fallback path instead of the shipped one.
+ * Each stub keeps the real module's contract: `MarkdownText` renders a
+ * `[data-markdown]` root, `Tag` a `[data-tone]` capsule, and `relativeTime` the
+ * shell's own bucketing (`{ unit, n }`) so the wording path is exercised.
+ */
+const primitivesStub = {
+  MarkdownText: function MarkdownText(props) {
+    return React.createElement('div', { 'data-markdown': '', 'data-variant': props.variant ?? 'body' }, props.text)
+  },
+  Tag: function Tag(props) {
+    return React.createElement('span', { 'data-tone': props.tone ?? 'outline' }, props.children)
+  },
+  relativeTime(at, now) {
+    const MIN = 60_000
+    const HOUR = 3_600_000
+    const DAY = 86_400_000
+    const diff = Math.max(0, now - at)
+    if (diff < MIN) return { unit: 'now', n: 0 }
+    if (diff < HOUR) return { unit: 'minutes', n: Math.floor(diff / MIN) }
+    if (diff < DAY) return { unit: 'hours', n: Math.floor(diff / HOUR) }
+    if (diff < 30 * DAY) return { unit: 'days', n: Math.floor(diff / DAY) }
+    if (diff < 365 * DAY) return { unit: 'months', n: Math.floor(diff / (30 * DAY)) }
+    return { unit: 'years', n: Math.floor(diff / (365 * DAY)) }
+  },
+}
+
+let primitivesAsked = false
 const requireStub = (name) => {
   if (name === 'react') return React
+  if (name === '@deepseek-ai/dsh-client-ui-primitives') {
+    primitivesAsked = true
+    return primitivesStub
+  }
   throw new Error(`unexpected require("${name}") — the bundle must stay dependency-free`)
 }
 
@@ -826,6 +861,27 @@ const addedLine = lines.find(line => line.props['data-kind'] === 'add')
 check('an addition keeps its text', textOf(addedLine).includes('two changed'), textOf(addedLine))
 check('the selected path is shown in the header', findAll(tree, node => node.props !== undefined && node.props['data-dsh-diff-path'] !== undefined).length === 1)
 
+/* The comparison is drawn in the shell's own vocabulary — `ui-primitives`'
+ * DiffBlock and CodeCard — so these guards are what keeps it there: no
+ * line-number gutter (a different application's diff), the state colour with the
+ * 3px inset bar on a tinted row, and the code-block font/radius on the card. */
+check('a line carries no line-number gutter', findAll(tree, node => ['dshdv-no', 'dshdv-sign'].includes(node.props?.className)).length === 0, JSON.stringify(findAll(tree, node => ['dshdv-no', 'dshdv-sign'].includes(node.props?.className)).map(node => node.props.className)))
+const lineRule = /\.dshdv-line\[data-kind="add"\]\{([^}]*)\}/u.exec(styles)?.[1] ?? ''
+check('an added line uses the shell diff tint', lineRule.includes('var(--dsw-alias-code-diff-added'), lineRule)
+check('an added line uses the shell state colour', lineRule.includes('var(--dsw-alias-state-success-primary'), lineRule)
+check('an added line carries the shell inset bar', lineRule.includes('inset 3px 0 0'), lineRule)
+const codeRule = /\.dshdv-code\{([^}]*)\}/u.exec(styles)?.[1] ?? ''
+check('the card uses the shell code-block fill', codeRule.includes('var(--dsw-alias-markdown-code-block'), codeRule)
+check('the card uses the shell large radius', codeRule.includes('var(--dsw-radius-lg'), codeRule)
+const unifiedRule = /\.dshdv-line\{([^}]*)\}/u.exec(styles)?.[1] ?? ''
+check('diff lines use the shell markdown code font', unifiedRule.includes('var(--dsw-font-markdown-code-block'), unifiedRule)
+check('wrap is the shell attribute, not a row class', styles.includes('.dshdv-code[data-code-wrap="true"] .dshdv-line'), 'wrap rule')
+const bubbleRule = /\.dshdv-tvBubble\{([^}]*)\}/u.exec(styles)?.[1] ?? ''
+check('the question bubble uses the shell bubble fill', bubbleRule.includes('var(--dsw-specific-bubble'), bubbleRule)
+check('the question bubble uses the shell bubble radius', bubbleRule.includes('var(--dsw-radius-xl'), bubbleRule)
+check('the question bubble follows the body font axis', bubbleRule.includes('--dsh-content-font-size') && bubbleRule.includes('--dsh-content-font-delta'), bubbleRule)
+check('the bundle asks the page for the shell primitives', primitivesAsked === true, 'the primitives module was required at load')
+
 console.log('\nthe auto-refresh cadence')
 seedRoutes()
 unmount()
@@ -1215,7 +1271,13 @@ turnTree = await rerender(React.createElement(TurnsView, Object.assign({}, viewP
 check('choosing a turn reads its detail', requests.some(entry => entry.url === TURN_DETAIL(2)), JSON.stringify(requests.map(entry => entry.url)))
 check('the detail shows the question', textOf(turnTree).includes('第二轮：把状态也算出来'), textOf(turnTree))
 check('and the answer', textOf(turnTree).includes('改完了：两个文件。'), textOf(turnTree))
-check('the two blocks are labelled', textOf(turnTree).includes('提问') && textOf(turnTree).includes('最终应答'), textOf(turnTree))
+/* The shell's own language: a question is a right-aligned bubble on
+ * `--dsw-specific-bubble`, an answer is Markdown. Neither carries a visible
+ * label in chat, so both carry an accessible one instead of invented chrome. */
+check('the question is drawn as the shell\'s user bubble', findAll(turnTree, node => node.props?.className === 'dshdv-tvBubble').length === 1, JSON.stringify(findAll(turnTree, node => node.props?.className === 'dshdv-tvBubble').length))
+check('the answer goes through the shell\'s Markdown renderer', findAll(turnTree, node => node.props?.['data-markdown'] !== undefined).length === 1)
+check('the markdown renderer is given its chrome copy', findAll(turnTree, node => node.props?.['data-markdown'] !== undefined)[0] !== undefined)
+check('each block is named for assistive tech', findAll(turnTree, node => node.props?.['aria-label'] === '提问').length === 1 && findAll(turnTree, node => node.props?.['aria-label'] === '最终应答').length === 1, JSON.stringify(findAll(turnTree, node => node.props?.['aria-label'] !== undefined).map(node => node.props['aria-label'])))
 check('the changed files are listed', turnFileRows().length === 3, JSON.stringify(turnFileRows().map(row => row.props['data-path'])))
 check('the first file of the turn is selected', turnFileRows()[0].props['aria-selected'] === true, JSON.stringify(turnFileRows().map(row => row.props['aria-selected'])))
 check('its comparison is read at that turn\'s coordinate', requests.some(entry => entry.url === TURN_FILE), JSON.stringify(requests.map(entry => entry.url)))
@@ -1237,7 +1299,8 @@ check('a truncated text is noted', textOf(turnTree).includes('内容较长'), te
 check('the truncated prompt is shown as far as it goes', textOf(turnTree).includes('第一轮'), textOf(turnTree))
 check('that turn\'s own file is listed', turnFileRows().length === 1 && turnFileRows()[0].props['data-path'] === 'src/early.txt', JSON.stringify(turnFileRows().map(row => row.props['data-path'])))
 check('and read at its own turn', requests.some(entry => entry.url === TURN_FILE_ONE), JSON.stringify(requests.map(entry => entry.url)))
-check('an addition-only comparison shows its note', textOf(turnTree).includes('+ early') || textOf(turnTree).includes('+early'), textOf(turnTree))
+check('an addition-only comparison shows its created note', findAll(turnTree, node => node.props?.['data-diff-note'] === 'diff.created').length === 1, JSON.stringify(findAll(turnTree, node => node.props?.['data-diff-note'] !== undefined).map(node => node.props['data-diff-note'])))
+check('the comparison carries the shell\'s code-wrap attribute', findAll(turnTree, node => node.props?.['data-code-wrap'] !== undefined).length >= 1)
 
 // A failed turn list is the list's own state, with a way back.
 unmount()

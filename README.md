@@ -85,6 +85,25 @@
 - **轮次归属靠位置**：`user/message` **不带**轮次号，只有 `turn/start` / `turn/end` 带。所以折叠按顺序走日志，把每条消息记到当时"打开着"的那一轮。列表取**两侧的并集**（日志里的轮次 ∪ 记录器知道的轮次），因为日志被压缩过时，某一轮的 `turn/start` 可能没了，而它的改动记录还在；反过来，也有很多一轮什么都没改。
 - **文本是截断的**：列表里每条 160 字，详情里 8000 字，截断了就明说（「内容较长，此处只显示前 N 字」）。一次列表请求的文本量因此与轮次数量成正比、与消息长度无关。
 
+### 样式：用外壳自己的词汇，而不是自己发明一套
+
+页签里没有一处是"看起来差不多"的自制样式，能拿到外壳原件的都用原件：
+
+| 部位 | 用的东西 | 出处 |
+|---|---|---|
+| **最终应答** | 外壳自己的 **`MarkdownText`**（`require('@deepseek-ai/dsh-client-ui-primitives')`）—— 同一套排版、代码围栏、脚注、KaTeX；`labels` 按外壳自己的方式构造并 memo（新对象会丢掉它的流式渲染缓存） | `ui-primitives/markdown/MarkdownText` |
+| **提问** | 外壳对话里的**用户气泡**：右对齐、`--dsw-specific-bubble` 填充、`--dsw-radius-xl` 圆角、`padding:10px 16px`、字号/行高走 `--dsh-content-font-size` / `--dsh-content-font-delta` 两根轴 | `ui-chat` `MessageItem.module.css` `.bubble` |
+| **文件对比** | 外壳 **`DiffBlock` / `CodeCard`** 的词汇：卡片铺 `--dsw-alias-markdown-code-block` + `--dsw-radius-lg`，正文 `--dsw-font-markdown-code-block`（`11px/19px` 等宽），`- `/`+ ` 用 `::before` 前缀，增删行 = 状态色 + `inset 3px 0 0` 侧条 + `--dsw-alias-code-diff-added/deleted` 底纹，换行走 `data-code-wrap` 属性 | `ui-primitives` `DiffBlock.module.css` / `CodeCard.module.css` |
+| **轮次时间** | 外壳自己的 **`relativeTime`** 分桶（`{unit,n}`）+ 与 `ui-workspace` 会话行**同样的措辞**（`刚刚` / `5分钟` / `3小时` …） | `ui-primitives/relative-time`、`ui-workspace/locales` |
+| **「进行中」标记** | 外壳的 **`Tag`**（`tone="info"`） | `ui-primitives/Tag.tsx` |
+
+两处刻意的取舍：
+
+- **删掉了行号栏。** 之前那套「旧行号 / 新行号 / 符号 / 文本」四列是 VSCode 的样子，外壳自己的 diff **没有行号**，只有前缀、色条和底色 —— 一眼就能看出不是同一个应用。hunk 头（`@@ … @@`）按外壳 `.gap` 的做法处理成弱化等宽行。
+- **不再画可见的「提问 / 最终应答」标题**：外壳对话里这两者靠形状区分（右气泡 vs 左正文），加标题反而多出一层外壳没有的装饰。改由 `aria-label` 给读屏器交代。
+
+`ui-primitives` 拿不到时会退回朴素渲染（纯文本 + 自绘行），所以这个 bundle 在一个没有该模块的页面里仍然能加载。
+
 ```
 ┌─ 工作区 │ 本次会话 ──────────────── 12 个文件  +238 −41   [筛选…]  ● ↻ ┐
 ├──────────────────────────┬───────────────────────────────────────────────┤
@@ -186,7 +205,7 @@ dsh plugin add link:F:/deepseek_harness_workspace/dsh-diff-view
 
 ```bash
 node tools/test-host.mjs      # 127 项：解析器对真实 git 输出、路由行为、会话折叠与兜底、围栏
-node tools/smoke-client.mjs   # 180 项：契约、注册、渲染、交互、失败态
+node tools/smoke-client.mjs   # 196 项：契约、注册、渲染、交互、失败态
 npm test                      # 两个都跑
 ```
 

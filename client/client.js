@@ -143,6 +143,19 @@ window.__ModuleLoader__.load({
 				'turns.detail.loading': '正在读取这一轮…',
 				'turns.label.turn': '轮次',
 				'turns.retry': '重试',
+				'turns.copy': '复制',
+				'turns.copied': '已复制',
+				'turns.code': '代码',
+				'turns.wrap': '换行',
+				'turns.unwrap': '不换行',
+				'turns.footnotes': '脚注',
+				'time.now': '刚刚',
+				'time.minutes': '{n}分钟',
+				'time.hours': '{n}小时',
+				'time.days': '{n}天',
+				'time.months': '{n}个月',
+				'time.years': '{n}年',
+				'time.ago': '{t}前',
 				'list.empty': '当前范围没有改动',
 				'list.emptyFiltered': '没有匹配的文件',
 				'list.loading': '正在读取改动…',
@@ -233,6 +246,19 @@ window.__ModuleLoader__.load({
 				'turns.detail.loading': 'Reading this turn…',
 				'turns.label.turn': 'Turn',
 				'turns.retry': 'Retry',
+				'turns.copy': 'Copy',
+				'turns.copied': 'Copied',
+				'turns.code': 'Code',
+				'turns.wrap': 'Wrap',
+				'turns.unwrap': 'No wrap',
+				'turns.footnotes': 'Footnotes',
+				'time.now': 'now',
+				'time.minutes': '{n}min',
+				'time.hours': '{n}h',
+				'time.days': '{n}d',
+				'time.months': '{n}mo',
+				'time.years': '{n}y',
+				'time.ago': '{t} ago',
 				'list.empty': 'No changes in this scope',
 				'list.emptyFiltered': 'No file matches the filter',
 				'list.loading': 'Reading changes…',
@@ -328,14 +354,24 @@ window.__ModuleLoader__.load({
 			'.dshdv-tvRow[aria-selected="true"]{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}',
 			'.dshdv-tvRow:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#3b6cf6);outline-offset:1px}',
 			'.dshdv-tvRowTurn{flex:none;font-variant-numeric:tabular-nums}',
-			'.dshdv-tvRowCounts{display:inline-flex;align-items:center;gap:5px;margin-left:auto;color:var(--dsw-alias-label-tertiary,#8b939e);font-size:11px;font-variant-numeric:tabular-nums}',
+			'.dshdv-tvRowMeta{display:inline-flex;align-items:center;gap:6px;margin-left:auto;color:var(--dsw-alias-label-tertiary,#8b939e);font-size:11px;font-variant-numeric:tabular-nums}',
+			'.dshdv-tvRowTime{flex:none}',
 			'.dshdv-tvTag{flex:none;padding:1px 6px;border-radius:var(--dsw-radius-sm,6px);background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06));color:var(--dsw-alias-label-tertiary,#8b939e);font-size:11px}',
 			'.dshdv-tvMain{display:flex;flex-direction:column;flex:1 1 auto;min-width:0;min-height:0}',
-			'.dshdv-tvSaid{flex:0 1 auto;max-height:42%;overflow-y:auto;padding:10px 12px;border-bottom:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.08))}',
-			'.dshdv-tvSaidBlock+.dshdv-tvSaidBlock{margin-top:12px}',
-			'.dshdv-tvLabel{margin:0 0 4px;color:var(--dsw-alias-label-tertiary,#8b939e);font-size:11px}',
-			'.dshdv-tvText{margin:0;white-space:pre-wrap;word-break:break-word;font-size:13px;line-height:1.6;color:var(--dsw-alias-label-primary,#1b1f24)}',
-			'.dshdv-tvEmpty{margin:0;color:var(--dsw-alias-label-tertiary,#8b939e);font-size:12px}',
+			'.dshdv-tvSaid{flex:0 1 auto;max-height:52%;overflow-y:auto;padding:12px 16px;border-bottom:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.08))}',
+			'.dshdv-tvSaidBlock+.dshdv-tvSaidBlock{margin-top:14px}',
+			/* The question is the shell's own user bubble: right-aligned, on
+			 * `--dsw-specific-bubble`, at `--dsw-radius-xl`, sized by the body axis
+			 * the Settings font preference publishes. */
+			'.dshdv-tvAskRow{display:flex;flex-direction:column;align-items:flex-end;gap:4px;min-width:0}',
+			'.dshdv-tvBubble{max-width:82%;background:var(--dsw-specific-bubble,#eef3ff);border-radius:var(--dsw-radius-xl,20px);padding:10px 16px;font-size:var(--dsh-content-font-size,14px);line-height:calc(22px + var(--dsh-content-font-delta,0px));color:var(--dsw-alias-label-primary,#1b1f24);white-space:pre-wrap;word-break:break-word}',
+			'.dshdv-tvAskText{display:block}',
+			'.dshdv-tvInjected{align-self:flex-end;color:var(--dsw-alias-label-tertiary,#8b939e);font-size:var(--dsh-content-font-size-secondary,13px)}',
+			/* The answer is the shell's own Markdown renderer; this only places it. */
+			'.dshdv-tvMarkdown{min-width:0;color:var(--dsw-alias-label-primary,#1b1f24)}',
+			'.dshdv-tvMarkdown>*:first-child{margin-top:0}',
+			'.dshdv-tvMarkdown>*:last-child{margin-bottom:0}',
+			'.dshdv-tvEmpty{margin:0;color:var(--dsw-alias-label-tertiary,#8b939e);font-size:var(--dsh-content-font-size-secondary,13px)}',
 			'.dshdv-tvNote{margin:6px 0 0;color:var(--dsw-alias-label-tertiary,#8b939e);font-size:11px}',
 			'.dshdv-tvFiles{display:flex;flex-direction:column;flex:1 1 auto;min-height:0}',
 			'.dshdv-tvFilesHead{display:flex;align-items:center;gap:8px;flex:none;height:32px;padding:0 12px;border-bottom:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.08))}',
@@ -385,21 +421,30 @@ window.__ModuleLoader__.load({
 			 * the picture away for the tenth of a second the read takes. */
 			'.dshdv-scroll.dshdv-busy{opacity:.45;transition:opacity .12s linear}',
 			'.dshdv-headBusy{flex:none;font-size:12px;color:var(--dsw-alias-label-tertiary,#8b939e)}',
-			'.dshdv-hunk{border-bottom:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.06))}',
-			'.dshdv-hunkHeader{padding:3px 12px;background:var(--dsw-alias-bg-layer-2,rgba(0,0,0,.04));color:var(--dsw-alias-label-tertiary,#8b939e);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;position:sticky;top:0}',
-			'.dshdv-line{display:flex;align-items:flex-start;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:19px;white-space:pre}',
-			'.dshdv-line[data-kind="add"]{background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#1a7f37) 10%,transparent)}',
-			'.dshdv-line[data-kind="del"]{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#c0392b) 10%,transparent)}',
-			'.dshdv-no{flex:none;width:48px;padding:0 8px;text-align:right;color:var(--dsw-alias-label-tertiary,#8b939e);user-select:none;font-variant-numeric:tabular-nums}',
-			'.dshdv-sign{flex:none;width:14px;text-align:center;color:var(--dsw-alias-label-tertiary,#8b939e);user-select:none}',
-			'.dshdv-text{flex:1 1 auto;min-width:0;padding-right:16px}',
-			'.dshdv-wrap .dshdv-line{white-space:pre-wrap;word-break:break-word}',
-			'.dshdv-wrap .dshdv-text{white-space:pre-wrap}',
+			/* The comparison is drawn in the shell's OWN code-card vocabulary —
+			 * `ui-primitives` `DiffBlock`/`CodeCard`: a card on
+			 * `--dsw-alias-markdown-code-block` at `--dsw-radius-lg`, body lines at
+			 * `--dsw-font-markdown-code-block`, `- `/`+ ` prefixes, the state colour
+			 * plus a 3px inset bar on a tinted row, and `data-code-wrap` for the wrap
+			 * switch. A two-column line-number gutter would be a different
+			 * application's diff, which is exactly what a reader notices first. */
+			'.dshdv-code{margin:0;background:var(--dsw-alias-markdown-code-block,var(--dsw-alias-bg-layer-2,#fafafa));border-radius:var(--dsw-radius-lg,16px);color:var(--dsw-alias-label-primary,#1b1f24)}',
+			'.dshdv-hunk{padding:6px 0 20px}',
+			'.dshdv-hunk+.dshdv-hunk{border-top:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.06))}',
+			'.dshdv-hunkHeader{padding:0 22px;color:var(--dsw-alias-label-tertiary,#8b939e);font:var(--dsw-font-markdown-code-block,11px/19px var(--ds-font-family-code,monospace));white-space:pre}',
+			'.dshdv-line{box-sizing:border-box;min-height:1lh;padding:0 22px;white-space:pre;color:var(--dsw-alias-label-secondary,#5b636e);font:var(--dsw-font-markdown-code-block,11px/19px var(--ds-font-family-code,monospace))}',
+			'.dshdv-line[data-kind="del"]::before{content:"- "}',
+			'.dshdv-line[data-kind="del"]{color:var(--dsw-alias-state-error-primary,#c0392b);background:var(--dsw-alias-code-diff-deleted,rgba(220,38,38,.08));box-shadow:inset 3px 0 0 var(--dsw-alias-state-error-primary,#c0392b)}',
+			'.dshdv-line[data-kind="add"]::before{content:"+ "}',
+			'.dshdv-line[data-kind="add"]{color:var(--dsw-alias-state-success-primary,#1a7f37);background:var(--dsw-alias-code-diff-added,rgba(34,197,94,.08));box-shadow:inset 3px 0 0 var(--dsw-alias-state-success-primary,#1a7f37)}',
+			'.dshdv-line[data-kind="context"]::before{content:"  "}',
+			'.dshdv-code[data-code-wrap="true"] .dshdv-line,.dshdv-code[data-code-wrap="true"] .dshdv-hunkHeader{white-space:pre-wrap;overflow-wrap:anywhere}',
+			'.dshdv-text{flex:1 1 auto;min-width:0}',
 			'.dshdv-split{display:flex;align-items:flex-start}',
-			'.dshdv-splitCell{flex:1 1 50%;min-width:0;display:flex;align-items:flex-start;border-right:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.06))}',
-			'.dshdv-splitCell[data-kind="add"]{background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#1a7f37) 10%,transparent)}',
-			'.dshdv-splitCell[data-kind="del"]{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#c0392b) 10%,transparent)}',
-			'.dshdv-splitCell[data-empty="true"]{background:var(--dsw-alias-bg-layer-2,rgba(0,0,0,.02))}',
+			'.dshdv-splitCell{flex:1 1 50%;min-width:0;display:flex;align-items:flex-start;border-right:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.06));padding:0 12px;white-space:pre}',
+			'.dshdv-splitCell[data-kind="add"]{color:var(--dsw-alias-state-success-primary,#1a7f37);background:var(--dsw-alias-code-diff-added,rgba(34,197,94,.08))}',
+			'.dshdv-splitCell[data-kind="del"]{color:var(--dsw-alias-state-error-primary,#c0392b);background:var(--dsw-alias-code-diff-deleted,rgba(220,38,38,.08))}',
+			'.dshdv-splitCell[data-empty="true"]{background:transparent}',
 			'.dshdv-status{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;height:100%;padding:24px;text-align:center;color:var(--dsw-alias-label-secondary,#5b636e);font-size:var(--dsh-content-font-size-secondary,13px)}',
 			'.dshdv-status p{margin:0;max-width:44ch;line-height:1.6}',
 			'.dshdv-note{padding:6px 12px;background:var(--dsw-alias-bg-layer-2,rgba(0,0,0,.03));color:var(--dsw-alias-label-secondary,#5b636e);font-size:12px;border-bottom:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.06))}',
@@ -1428,16 +1473,47 @@ window.__ModuleLoader__.load({
 			return TURN_URL + '?sessionId=' + encodeURIComponent(sessionId) + '&turn=' + encodeURIComponent(String(turn));
 		}
 
-		/** One block of the right column: a label, then pre-wrapped text. */
-		function saidBlock(label, said, emptyCopy, truncCopy, format) {
+		/**
+		 * The turn's question, drawn as the shell draws a user message.
+		 *
+		 * Chat renders a direct prompt as a right-aligned bubble on
+		 * `--dsw-specific-bubble` with `--dsw-radius-xl`; a review pane that drew the
+		 * same words as a plain paragraph would look like a different application.
+		 * The bubble owns wrapping, so the text stays one run.
+		 */
+		function askBlock(said, emptyCopy, truncCopy, format, label) {
 			if (said === null || said === undefined) {
-				return h('div', { className: 'dshdv-tvSaidBlock' },
-					h('p', { className: 'dshdv-tvLabel' }, label),
+				return h('div', { className: 'dshdv-tvSaidBlock', 'data-said': 'ask', role: 'group', 'aria-label': label },
 					h('p', { className: 'dshdv-tvEmpty' }, emptyCopy));
 			}
-			return h('div', { className: 'dshdv-tvSaidBlock' },
-				h('p', { className: 'dshdv-tvLabel' }, label, said.human === false ? h('span', { className: 'dshdv-tvTag' }, said.source) : null),
-				h('p', { className: 'dshdv-tvText', 'data-said': label }, said.text),
+			return h('div', { className: 'dshdv-tvSaidBlock', 'data-said': 'ask', role: 'group', 'aria-label': label },
+				h('div', { className: 'dshdv-tvAskRow' },
+					h('div', { className: 'dshdv-tvBubble' },
+						h('span', { className: 'dshdv-tvAskText' }, said.text)),
+					said.human === false
+						? h('span', { className: 'dshdv-tvInjected' }, said.source)
+						: null),
+				said.truncated === true
+					? h('p', { className: 'dshdv-tvNote' }, format(truncCopy, { count: String(said.text.length) }))
+					: null);
+		}
+
+		/**
+		 * The turn's answer, rendered by the shell's own Markdown renderer.
+		 *
+		 * Falls back to pre-wrapped text only when the page exposes no primitives:
+		 * Markdown is what an answer IS, and a plugin's own re-implementation would
+		 * drift from the shell's typography, fences and footnotes within a release.
+		 */
+		function answerBlock(said, emptyCopy, truncCopy, format, labels, label) {
+			if (said === null || said === undefined) {
+				return h('div', { className: 'dshdv-tvSaidBlock', 'data-said': 'answer', role: 'group', 'aria-label': label },
+					h('p', { className: 'dshdv-tvEmpty' }, emptyCopy));
+			}
+			var body = MarkdownText !== null
+				? h('div', { className: 'dshdv-tvMarkdown' }, h(MarkdownText, { text: said.text, labels: labels }))
+				: h('p', { className: 'dshdv-tvText' }, said.text);
+			return h('div', { className: 'dshdv-tvSaidBlock', 'data-said': 'answer', role: 'group', 'aria-label': label }, body,
 				said.truncated === true
 					? h('p', { className: 'dshdv-tvNote' }, format(truncCopy, { count: String(said.text.length) }))
 					: null);
@@ -1460,6 +1536,19 @@ window.__ModuleLoader__.load({
 			var setTick = tickState[1];
 			var activeUntil = React.useRef(0);
 			var markActive = function () { activeUntil.current = Date.now() + TURNS_ACTIVE_MS; };
+			/* MarkdownText memoizes its vocabulary: a fresh labels object every render
+			 * would discard its streaming/fence cache, so it is built once per locale
+			 * seat the way the shell's own chat view builds it. */
+			var markdownLabels = React.useMemo(function () {
+				return {
+					code: {
+						copyLabel: t('turns.copy'),
+						copiedLabel: t('turns.copied'),
+						toolbarLabels: { codeLabel: t('turns.code'), wrapLabel: t('turns.wrap'), unwrapLabel: t('turns.unwrap') },
+					},
+					footnotes: t('turns.footnotes'),
+				};
+			}, [t]);
 
 			React.useEffect(function () {
 				void controller.load(sessionId);
@@ -1493,6 +1582,7 @@ window.__ModuleLoader__.load({
 				listBody = h('div', { className: 'dshdv-status' }, h('p', null, t('turns.list.empty')));
 			} else {
 				listBody = rows.map(function (row) {
+					var when = shellTime(t, row.time);
 					return h('button', {
 						key: row.turn,
 						type: 'button',
@@ -1507,11 +1597,16 @@ window.__ModuleLoader__.load({
 						},
 					},
 						h('span', { className: 'dshdv-tvRowTurn' }, format(t('turns.turn'), { turn: String(row.turn) })),
-						row.open === true ? h('span', { className: 'dshdv-tvTag' }, t('turns.open')) : null,
-						h('span', { className: 'dshdv-tvRowCounts' },
-							row.files === 0 ? null : h('span', null, String(row.files)),
+						row.open === true
+							? (Tag !== null
+								? h(Tag, { tone: 'info' }, t('turns.open'))
+								: h('span', { className: 'dshdv-tvTag' }, t('turns.open')))
+							: null,
+						h('span', { className: 'dshdv-tvRowMeta' },
+							when === null ? null : h('span', { className: 'dshdv-tvRowTime' }, when),
 							row.added > 0 ? h('span', { className: 'dshdv-add' }, '+' + row.added) : null,
-							row.deleted > 0 ? h('span', { className: 'dshdv-del' }, '−' + row.deleted) : null));
+							row.deleted > 0 ? h('span', { className: 'dshdv-del' }, '−' + row.deleted) : null,
+							row.files === 0 ? null : h('span', { className: 'dshdv-tvRowFiles' }, format(t('turns.fileCount'), { count: String(row.files) }))));
 				});
 			}
 
@@ -1523,8 +1618,8 @@ window.__ModuleLoader__.load({
 				said = h('div', { className: 'dshdv-tvSaid' }, h('div', { className: 'dshdv-status' }, h('p', null, t('turns.list.empty'))));
 			} else {
 				said = h('div', { className: 'dshdv-tvSaid', 'data-dsh-diff-said': '' },
-					saidBlock(t('turns.ask'), state.prompt, t('turns.noAsk'), t('turns.truncated'), format),
-					saidBlock(t('turns.answer'), state.answer, t('turns.noAnswer'), t('turns.truncated'), format));
+					askBlock(state.prompt, t('turns.noAsk'), t('turns.truncated'), format, t('turns.ask')),
+					answerBlock(state.answer, t('turns.noAnswer'), t('turns.truncated'), format, markdownLabels, t('turns.answer')));
 			}
 
 			var filesBody;
@@ -1762,25 +1857,28 @@ window.__ModuleLoader__.load({
 					h('p', null, note === null ? t('diff.none') : t(note)));
 			}
 			var single = isOneSided(hunks);
-			var rows = [];
-			if (note !== null) rows.push(h('p', { key: 'note', className: 'dshdv-note', 'data-diff-note': note }, t(note)));
-			if (diff.coarse === true) rows.push(h('p', { key: 'coarse', className: 'dshdv-note' }, t('diff.coarse')));
-			if (budget.truncated) rows.push(h('p', { key: 'cut', className: 'dshdv-note' }, format(t('diff.truncated'), { count: MAX_RENDERED_LINES })));
+			var body = [];
+			if (note !== null) body.push(h('p', { key: 'note', className: 'dshdv-note', 'data-diff-note': note }, t(note)));
+			if (diff.coarse === true) body.push(h('p', { key: 'coarse', className: 'dshdv-note' }, t('diff.coarse')));
+			if (budget.truncated) body.push(h('p', { key: 'cut', className: 'dshdv-note' }, format(t('diff.truncated'), { count: MAX_RENDERED_LINES })));
 			budget.hunks.forEach(function (hunk, index) {
-				rows.push(props.split && !single
+				body.push(props.split && !single
 					? h(SplitHunk, { key: index, hunk: hunk, wrap: props.wrap })
 					: h(UnifiedHunk, { key: index, hunk: hunk, wrap: props.wrap }));
 			});
 			var busy = state.diffPhase === 'loading';
-			var scrollClass = 'dshdv-scroll'
-				+ (props.wrap ? ' dshdv-wrap' : '')
-				+ (busy ? ' dshdv-busy' : '');
+			var scrollClass = 'dshdv-scroll' + (busy ? ' dshdv-busy' : '');
 			return h('div', {
 				className: scrollClass,
 				'data-diff-view': props.split && !single ? 'split' : 'unified',
 				'data-diff-busy': busy ? '' : undefined,
 				'aria-busy': busy ? 'true' : undefined,
-			}, rows);
+			}, h('div', {
+				/* The shell's own wrap switch is an attribute on the card, not a class
+				 * on every row: same vocabulary as `ui-primitives`' DiffBlock. */
+				className: 'dshdv-code',
+				'data-code-wrap': props.wrap ? 'true' : 'false',
+			}, body));
 		}, function sameComparison(previous, next) {
 			/* Exactly the inputs DiffBody reads — and they live on `state`, which is
 			 * a fresh object on every patch and must never take part in this
@@ -1809,7 +1907,12 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * One hunk as numbered rows.
+		 * One hunk as the shell draws a diff.
+		 *
+		 * The line's kind becomes a row attribute and the sign becomes a `::before`
+		 * prefix, exactly as `ui-primitives`' own `DiffBlock` does it — the change
+		 * bar, the tinted background and the `- `/`+ ` text all come from that one
+		 * attribute, so a row is a single element instead of a gutter of four.
 		 *
 		 * Memoized on the hunk object itself: the server's answer is kept whole
 		 * across a refresh that changed nothing, so an unchanged hunk keeps its
@@ -1822,9 +1925,6 @@ window.__ModuleLoader__.load({
 				h('div', { className: 'dshdv-hunkHeader' }, hunkHeaderText(props.hunk)),
 				rows.map(function (row, index) {
 					return h('div', { key: index, className: 'dshdv-line', 'data-kind': row.kind },
-						h('span', { className: 'dshdv-no' }, row.old === undefined ? '' : row.old),
-						h('span', { className: 'dshdv-no' }, row.next === undefined ? '' : row.next),
-						h('span', { className: 'dshdv-sign' }, row.kind === 'add' ? '+' : row.kind === 'del' ? '-' : ' '),
 						h('span', { className: 'dshdv-text' }, row.text));
 				}));
 		}, function sameHunk(previous, next) {
@@ -1839,10 +1939,8 @@ window.__ModuleLoader__.load({
 				rows.map(function (row, index) {
 					return h('div', { key: index, className: 'dshdv-line dshdv-split' },
 						h('span', { className: 'dshdv-splitCell', 'data-kind': row.left === undefined ? undefined : row.left.kind, 'data-empty': row.left === undefined },
-							h('span', { className: 'dshdv-no' }, row.left === undefined ? '' : row.left.no),
 							h('span', { className: 'dshdv-text' }, row.left === undefined ? '' : row.left.text)),
 						h('span', { className: 'dshdv-splitCell', 'data-kind': row.right === undefined ? undefined : row.right.kind, 'data-empty': row.right === undefined },
-							h('span', { className: 'dshdv-no' }, row.right === undefined ? '' : row.right.no),
 							h('span', { className: 'dshdv-text' }, row.right === undefined ? '' : row.right.text)));
 				}));
 		}, function sameHunk(previous, next) {
@@ -2234,6 +2332,66 @@ window.__ModuleLoader__.load({
 			if (state.scope === GIT && state.repo === null) return 'notice.notRepo';
 			if (state.scope === SESSION && state.files.length === 0) return 'notice.noSession';
 			return null;
+		}
+
+		/* ------------------------------------------------------------------ *
+		 * The shell's own primitives
+		 * ------------------------------------------------------------------ */
+
+		/**
+		 * Load the shell's UI primitives, when the page exposes them.
+		 *
+		 * A plugin that re-implements the shell's markdown renderer, its badges or
+		 * its relative-time wording cannot stay in step with it: a turn's answer IS
+		 * Markdown, and the shell already renders Markdown — with the same
+		 * typography, the same code fences, the same footnote chrome. So the
+		 * primitives are used where they exist and the plain fallbacks below are
+		 * used where they do not, which is also what keeps this bundle loadable in a
+		 * page that predates them.
+		 */
+		function loadPrimitives() {
+			try {
+				var loaded = require('@deepseek-ai/dsh-client-ui-primitives');
+				return loaded === null || loaded === undefined ? {} : loaded;
+			} catch (error) {
+				console.error('[dsh-diff-view] the shell UI primitives are unavailable:', error);
+				return {};
+			}
+		}
+
+		var PRIMITIVES = loadPrimitives();
+		var MarkdownText = typeof PRIMITIVES.MarkdownText === 'function' ? PRIMITIVES.MarkdownText : null;
+		var Tag = typeof PRIMITIVES.Tag === 'function' ? PRIMITIVES.Tag : null;
+		var ShellrelativeTime = typeof PRIMITIVES.relativeTime === 'function' ? PRIMITIVES.relativeTime : null;
+
+		/**
+		 * One timestamp, worded the way the shell words it.
+		 *
+		 * `relativeTime` answers a bucket (`{ unit, n }`) rather than a string, so the
+		 * wording stays with the caller — these are the same buckets and the same
+		 * words the shell's own session rows use, which is what makes two surfaces
+		 * naming the same moment agree. Without the primitive, the absolute clock is
+		 * used rather than inventing a phrasing.
+		 */
+		function shellTime(t, time) {
+			if (typeof time !== 'number' || time <= 0) return null;
+			if (ShellrelativeTime !== null) {
+				try {
+					var said = ShellrelativeTime(time, Date.now());
+					var unit = said === null || said === undefined ? undefined : said.unit;
+					var count = said === null || said === undefined ? undefined : said.n;
+					if (typeof unit === 'string' && typeof count === 'number') {
+						if (unit === 'now') return t('time.now');
+						var span = t('time.' + unit, { n: count });
+						if (typeof span === 'string' && span !== 'time.' + unit) return t('time.ago', { t: span });
+					}
+				} catch (error) {
+					/* a different primitives revision costs the wording, not the row */
+				}
+			}
+			var at = new Date(time);
+			var pad = function (part) { return part < 10 ? '0' + part : String(part); };
+			return pad(at.getHours()) + ':' + pad(at.getMinutes());
 		}
 
 		/* ------------------------------------------------------------------ *
