@@ -8,6 +8,7 @@
     "type": "git",
     "url": "git+https://github.com/TerryPro/dsh-view-extension.git"
   },
+  "license": "MIT",
   "main": "index.js",
   "exports": {
     ".": "./index.js",
@@ -20,7 +21,8 @@
     "lib",
     "client",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "dsh": {
     "bundle": {
