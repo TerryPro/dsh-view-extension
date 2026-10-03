@@ -1,25 +1,21 @@
-dsh-diff-view: icon mode control, and copy that survives a stale dictionary
+dsh-diff-view: the changes tab becomes a git browser
 
-The mode chips read `files.mode.preview` on a live page while `已保存` on the same
-row read fine. The cause is in the shell's locale service: `register` THROWS when
-a namespace+locale is registered twice ("already has locale zh"), which is exactly
-what a plugin reload does, and it then keeps the dictionary from the FIRST load.
-A key added by a later bundle therefore resolves to itself through the shell's `t`
--- while a key that existed in the first dictionary resolves normally.
+The working-tree view went empty after every per-round commit, which is the very
+workflow this plugin created. History is what is actually worth reading.
 
-Two fixes:
-- registering and binding are now separate attempts. They shared one try-block, so
-  the throw left `bound` undefined for the life of the reloaded plugin;
-- the views take the plugin's OWN translator (passed through `inject` as `tr`) and
-  use it for their copy, falling back to the dictionary that shipped with this
-  bundle whenever the shell's is missing a key. That also covers every key added
-  from now on.
+- left column: the commit list, with "working tree (uncommitted)" as its first row
+- right column: what the selection touched (a third) above that file's comparison
+- a commit's own files come from diff-tree --root --first-parent; its file diffs
+  read in the new commit scope (?scope=commit&at=<sha>)
+- the checkpoint button stays (the only write), and a commit re-reads the history
+- the session scope, the turn strip and the delta/state axis are gone by request,
+  with their styles
 
-Per the request, the mode control is icons: an eye (preview), a divided frame
-(side by side) and a pencil (edit), each with a title and an aria-label, matching
-the icon-only head it sits in.
+Two defects the new tests caught:
+- fileUrl formatted `at` as a session coordinate for every scope, so a commit read
+  asked for `at=<sha>:undefined:undefined` -- a read that could only fail;
+- a failed history read replaced the whole column, including the working-tree row
+  that needs no repository at all.
 
-The regression is tested by rendering with a deliberately frozen `t` (one that
-answers with raw keys) and asserting the labels still read 预览 / 并排 / 编辑.
-
-155 host checks, 305 client checks
+170 host checks (15 new: log parsing, paging, the root commit, commit files and
+statuses, the commit scope, a bad commit), 271 client checks.

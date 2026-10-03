@@ -31,7 +31,7 @@
     }
   },
   "scripts": {
-    "check": "node --check index.js && node --check lib/http.js && node --check lib/git.js && node --check lib/session.js && node --check lib/turns.js && node --check lib/commit.js && node --check lib/workspace.js && node --check lib/routes.js && node --check client/client.js && node tools/test-host.mjs && node tools/smoke-client.mjs",
+    "check": "node --check index.js && node --check lib/http.js && node --check lib/git.js && node --check lib/session.js && node --check lib/turns.js && node --check lib/commit.js && node --check lib/workspace.js && node --check lib/git.js && node --check lib/routes.js && node --check client/client.js && node tools/test-host.mjs && node tools/smoke-client.mjs",
     "test": "node tools/test-host.mjs && node tools/smoke-client.mjs",
     "test:host": "node tools/test-host.mjs",
     "test:client": "node tools/smoke-client.mjs"

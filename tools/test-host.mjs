@@ -365,13 +365,15 @@ async function main() {
   }
   const logger = { info() {}, warn() {} }
   const routes = routesModule.makeRoutes({ ctx, config: {}, logger })
-  equal(routes.map(route => `${route.kind} ${route.path}`), ['exact /api/dsh-diff/files', 'exact /api/dsh-diff/file', 'exact /api/dsh-diff/tree', 'exact /api/dsh-diff/read', 'exact /api/dsh-diff/write', 'exact /api/dsh-diff/raw', 'exact /api/dsh-diff/turns', 'exact /api/dsh-diff/turn', 'exact /api/dsh-diff/commit'], 'the family mounts its exact routes')
+  equal(routes.map(route => `${route.kind} ${route.path}`), ['exact /api/dsh-diff/files', 'exact /api/dsh-diff/file', 'exact /api/dsh-diff/tree', 'exact /api/dsh-diff/read', 'exact /api/dsh-diff/write', 'exact /api/dsh-diff/raw', 'exact /api/dsh-diff/commits', 'exact /api/dsh-diff/commit-detail', 'exact /api/dsh-diff/turns', 'exact /api/dsh-diff/turn', 'exact /api/dsh-diff/commit'], 'the family mounts its exact routes')
   const filesRoute = routes.find(route => route.path === routesModule.ROUTES.files).handler
   const fileRoute = routes.find(route => route.path === routesModule.ROUTES.file).handler
   const treeRoute = routes.find(route => route.path === routesModule.ROUTES.tree).handler
   const readRoute = routes.find(route => route.path === routesModule.ROUTES.read).handler
   const writeRoute = routes.find(route => route.path === routesModule.ROUTES.write).handler
   const rawRoute = routes.find(route => route.path === routesModule.ROUTES.raw).handler
+  const commitsRoute = routes.find(route => route.path === routesModule.ROUTES.commits).handler
+  const commitDetailRoute = routes.find(route => route.path === routesModule.ROUTES.commitDetail).handler
   const turnsRoute = routes.find(route => route.path === routesModule.ROUTES.turns).handler
   const turnRoute = routes.find(route => route.path === routesModule.ROUTES.turn).handler
 
@@ -583,6 +585,42 @@ async function main() {
   ok(String(rawDownload.headers?.['content-disposition'] ?? '').startsWith('attachment'), 'a download is served as an attachment', String(rawDownload.headers?.['content-disposition']))
   const rawEscape = await callRoute(rawRoute, '/api/dsh-diff/raw?sessionId=fixture&path=' + encodeURIComponent('../outside.txt'))
   ok(rawEscape.status === 400 && rawEscape.body?.error?.code === 'diff/bad-path', 'the raw route cannot escape the workspace', JSON.stringify(rawEscape.body))
+
+  // -- the history browser --------------------------------------------------
+  console.log('# history')
+  /* The fixture repository has real commits, so these assertions read what git
+   * actually wrote rather than a canned response. */
+  const history = await callRoute(commitsRoute, '/api/dsh-diff/commits?sessionId=fixture&limit=5')
+  ok(history.status === 200 && Array.isArray(history.body?.commits), 'the history lists commits', JSON.stringify(history.body?.error))
+  ok(history.body.commits.length >= 1 && history.body.commits.length <= 5, 'the page honours its limit', String(history.body.commits.length))
+  const newest = history.body.commits[0]
+  ok(typeof newest.sha === 'string' && newest.sha.length === 40, 'a commit carries its full id', JSON.stringify(newest.sha))
+  ok(newest.short === newest.sha.slice(0, 7) && typeof newest.subject === 'string' && newest.subject !== '', 'and a short id plus a subject', JSON.stringify({ short: newest.short, subject: newest.subject }))
+  ok(typeof newest.author === 'string' && newest.author !== '' && /^\d{4}-\d{2}-\d{2}T/u.test(newest.at), 'and an author and a date', JSON.stringify({ author: newest.author, at: newest.at }))
+  ok(history.body.commits.every(entry => !String(entry.subject).includes('\u0001')), 'the field separator never leaks into a value', JSON.stringify(history.body.commits.map(entry => entry.subject)))
+
+  const detail = await callRoute(commitDetailRoute, `/api/dsh-diff/commit-detail?sessionId=fixture&sha=${newest.sha}`)
+  ok(detail.status === 200 && detail.body?.commit?.sha === newest.sha, 'one commit reads back in full', JSON.stringify(detail.body?.error))
+  ok(Array.isArray(detail.body?.files) && detail.body.files.length >= 1, 'with the files it touched', JSON.stringify(detail.body?.files))
+  ok(detail.body.files.every(file => typeof file.path === 'string' && file.path !== '' && typeof file.status === 'string'), 'each naming a path and a status', JSON.stringify(detail.body.files))
+  ok(detail.body.files.every(file => Number.isSafeInteger(file.added) && Number.isSafeInteger(file.deleted)), 'and its line counts', JSON.stringify(detail.body.files))
+  const badCommit = await callRoute(commitDetailRoute, '/api/dsh-diff/commit-detail?sessionId=fixture&sha=' + 'f'.repeat(40))
+  ok(badCommit.status === 404, 'a commit that does not exist is a 404', JSON.stringify(badCommit.body))
+
+  /* A commit's own file diff: the scope the history browser opens files in. */
+  const changedPath = detail.body.files.find(file => file.status !== 'deleted')?.path ?? detail.body.files[0].path
+  const commitDiff = await callRoute(fileRoute, `/api/dsh-diff/file?scope=commit&sessionId=fixture&at=${newest.sha}&path=${encodeURIComponent(changedPath)}`)
+  ok(commitDiff.status === 200 && commitDiff.body?.scope === 'commit', 'a file reads in its commit scope', JSON.stringify(commitDiff.body?.error))
+  ok(Array.isArray(commitDiff.body?.hunks), 'and comes back as hunks', JSON.stringify(commitDiff.body?.hunks?.length))
+  const missingAt = await callRoute(fileRoute, `/api/dsh-diff/file?scope=commit&sessionId=fixture&path=${encodeURIComponent(changedPath)}`)
+  ok(missingAt.status === 400, 'a commit scope without a commit id is refused', JSON.stringify(missingAt.body))
+
+  /* The FIRST commit of a repository has no parent; `--root` is what keeps it
+   * browsable instead of answering an empty diff. */
+  const rootList = await callRoute(commitsRoute, '/api/dsh-diff/commits?sessionId=fixture&limit=200')
+  const oldest = rootList.body.commits[rootList.body.commits.length - 1]
+  const rootDetail = await callRoute(commitDetailRoute, `/api/dsh-diff/commit-detail?sessionId=fixture&sha=${oldest.sha}`)
+  ok(rootDetail.status === 200 && rootDetail.body.files.length >= 1, 'the first commit of the repository lists its files too', JSON.stringify(rootDetail.body?.files?.length))
 
   // -- the per-turn browser ------------------------------------------------
   console.log('# turns')

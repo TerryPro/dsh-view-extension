@@ -87,6 +87,11 @@ window.__ModuleLoader__.load({
 		var WRITE_URL = '/api/dsh-diff/write';
 		/** Raw bytes for a preview frame or a download. */
 		var ROUTES_RAW = '/api/dsh-diff/raw';
+		/** The history browser: the commit list, and one commit in full. */
+		var ROUTES_COMMITS = '/api/dsh-diff/commits';
+		var ROUTES_COMMIT_DETAIL = '/api/dsh-diff/commit-detail';
+		/** How many commits one page of history holds. */
+		var HISTORY_PAGE = 40;
 
 		var GIT = 'git';
 		var SESSION = 'session';
@@ -196,6 +201,12 @@ window.__ModuleLoader__.load({
 				'files.openFailed': '外壳的预览器现在不可用',
 				'files.download': '下载',
 				'files.foreign': '这个类型不能在这里编辑；浏览请用外壳的预览器',
+				'history.label': '提交历史',
+				'history.worktree': '工作区（未提交）',
+				'history.clean': '干净',
+				'history.empty': '这个仓库还没有提交',
+				'history.noFiles': '这个提交没有可显示的文件',
+				'history.filter': '搜索提交…',
 				'list.empty': '当前范围没有改动',
 				'list.emptyFiltered': '没有匹配的文件',
 				'list.loading': '正在读取改动…',
@@ -332,6 +343,12 @@ window.__ModuleLoader__.load({
 				'files.download': 'Download',
 				'files.foreign': 'This type cannot be edited here; browse it in the shell previewer',
 				'list.empty': 'No changes in this scope',
+				'history.label': 'History',
+				'history.worktree': 'Working tree (uncommitted)',
+				'history.clean': 'Clean',
+				'history.empty': 'This repository has no commits yet',
+				'history.noFiles': 'This commit has no displayable file',
+				'history.filter': 'Search commits…',
 				'list.emptyFiltered': 'No file matches the filter',
 				'list.loading': 'Reading changes…',
 				'diff.empty': 'Pick a file on the left to see its comparison',
@@ -411,10 +428,7 @@ window.__ModuleLoader__.load({
 				+ '[data-conversation-scroll]:has([data-dsh-diff-turns])>[data-composer-seat],'
 				+ '[data-conversation-scroll]:has([data-conversation-composer-overlay])>[data-composer-seat]{display:none}',
 			'.dshdv-bar{display:flex;align-items:center;gap:8px;padding:6px 12px;border-bottom:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.08));flex:none;min-height:38px;box-sizing:border-box}',
-			'.dshdv-tabs{display:inline-flex;padding:2px;gap:2px;border-radius:var(--dsw-radius-sm,6px);background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}',
-			'.dshdv-tab{border:0;background:transparent;color:var(--dsw-alias-label-secondary,#5b636e);font:inherit;font-size:12px;line-height:18px;padding:3px 10px;border-radius:var(--dsw-radius-sm,6px);cursor:pointer}',
 			'.dshdv-tab:hover{color:var(--dsw-alias-label-primary,#1b1f24)}',
-			'.dshdv-tab[aria-selected="true"]{background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-primary,#1b1f24)}',
 			'.dshdv-tab:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#3b6cf6);outline-offset:1px}',
 			'.dshdv-barSpacer{flex:1 1 auto;min-width:4px}',
 			'.dshdv-filter{position:relative;display:flex;align-items:center;flex:0 1 220px;min-width:120px}',
@@ -438,16 +452,10 @@ window.__ModuleLoader__.load({
 			'.dshdv-summary{display:inline-flex;align-items:center;gap:6px;color:var(--dsw-alias-label-secondary,#5b636e);font-size:12px;white-space:nowrap}',
 			/* The per-turn filter strip: only the session scope has turns, so this
 			 * row exists there and nowhere else. */
-			'.dshdv-turns{display:flex;align-items:center;gap:6px;flex:none;padding:6px 12px;overflow-x:auto;border-bottom:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.08))}',
-			'.dshdv-turn{display:inline-flex;flex:none;align-items:center;gap:5px;border:0;background:transparent;color:var(--dsw-alias-label-secondary,#5b636e);font:inherit;font-size:12px;line-height:18px;padding:3px 10px;border-radius:var(--dsw-radius-sm,6px);cursor:pointer;white-space:nowrap}',
 			'.dshdv-turn:hover{color:var(--dsw-alias-label-primary,#1b1f24);background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}',
-			'.dshdv-turn[aria-pressed="true"]{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06));color:var(--dsw-alias-label-primary,#1b1f24)}',
 			'.dshdv-turn:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#3b6cf6);outline-offset:1px}',
-			'.dshdv-turnCount{color:var(--dsw-alias-label-tertiary,#8b939e);font-variant-numeric:tabular-nums}',
 			/* The strip is a timeline on the left and an axis switch on the right; the
 			 * spacer keeps them apart however many turns there are. */
-			'.dshdv-turnsSpacer{flex:1 1 auto;min-width:8px}',
-			'.dshdv-modes{display:inline-flex;flex:none;gap:2px;padding:2px;border-radius:var(--dsw-radius-sm,6px);background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}',
 			'.dshdv-modes .dshdv-turn{padding:2px 8px}',
 			'.dshdv-modes .dshdv-turn[aria-pressed="true"]{background:var(--dsw-alias-bg-layer-1,#fff)}',
 			'.dshdv-turnTag{flex:none;color:var(--dsw-alias-label-tertiary,#8b939e);font-size:11px;font-variant-numeric:tabular-nums}',
@@ -619,6 +627,20 @@ window.__ModuleLoader__.load({
 			'.dshdv-del{color:var(--dsw-alias-state-error-primary,#c0392b)}',
 			'.dshdv-main{display:flex;flex:1 1 auto;min-height:0}',
 			'.dshdv-list{flex:0 0 272px;min-width:180px;max-width:45%;display:flex;flex-direction:column;border-right:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.08));background:var(--dsw-alias-bg-layer-1,#fafbfc);overflow:hidden}',
+			/* The right column of the history browser: what the selected commit touched
+			 * on top (a third), that file's comparison below it — the same split the
+			 * per-turn tab uses, so the two sibling tabs read alike. */
+			'.dshdv-gitRight{display:flex;flex-direction:column;flex:1 1 auto;min-width:0;min-height:0}',
+			'.dshdv-gitFiles{display:flex;flex-direction:column;flex:0 0 33.3333%;min-height:0;border-bottom:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.08))}',
+			/* A commit row: the subject takes the room, the id and the date stay put. */
+			'.dshdv-commitRow{display:flex;flex-direction:column;gap:2px;width:100%;min-width:0;padding:7px 10px;border:0;border-radius:var(--dsw-radius-md,12px);background:transparent;text-align:left;font:inherit;color:var(--dsw-alias-label-primary,#1b1f24);cursor:pointer}',
+			'.dshdv-commitRow:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}',
+			'.dshdv-commitRow[aria-selected="true"]{background:var(--dsw-alias-interactive-bg-active,var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.08)))}',
+			'.dshdv-commitRow:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#3b6cf6);outline-offset:1px}',
+			'.dshdv-commitSubject{width:100%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}',
+			'.dshdv-commitMeta{display:flex;align-items:center;gap:6px;min-width:0;color:var(--dsw-alias-label-tertiary,#8b939e);font-size:11px}',
+			'.dshdv-commitSha{font-family:var(--ds-font-family-code,monospace)}',
+			'.dshdv-commitWhen{margin-left:auto;white-space:nowrap}',
 			/* The tree's own scroller geometry (ui-sidebar-files FilesBody `.body`): a
 			 * 2px scrollbar offset, a stable gutter, and rows inset 8px from the pane
 			 * edge so the hover fill never touches the border. */
@@ -902,6 +924,19 @@ window.__ModuleLoader__.load({
 				diffPath: undefined,
 				diffPhase: 'idle',
 				diffError: null,
+				/** The history axis: the commit list, and the commit being browsed. */
+				history: [],
+				historyPhase: 'idle',
+				historyError: null,
+				historyMore: false,
+				/** The commit in view; `null` means the working tree. */
+				selectedSha: null,
+				/** The commit's own metadata, once read. */
+				commitMeta: null,
+				/** The files that commit touched — not the working tree's. */
+				commitFiles: [],
+				filesPhase: 'idle',
+				filesError: null,
 			};
 		}
 
@@ -1119,12 +1154,27 @@ window.__ModuleLoader__.load({
 			return FILES_URL + '?scope=' + encodeURIComponent(scope) + '&sessionId=' + encodeURIComponent(sessionId);
 		}
 
+		/** The commit list, and one commit in full. */
+		function historyUrl(sessionId) {
+			return ROUTES_COMMITS + '?sessionId=' + encodeURIComponent(sessionId) + '&limit=' + String(HISTORY_PAGE);
+		}
+
+		function commitUrl(sessionId, sha) {
+			return ROUTES_COMMIT_DETAIL + '?sessionId=' + encodeURIComponent(sessionId) + '&sha=' + encodeURIComponent(sha);
+		}
+
 		function fileUrl(scope, sessionId, path, at) {
 			var url = FILE_URL + '?scope=' + encodeURIComponent(scope) + '&sessionId=' + encodeURIComponent(sessionId) + '&path=' + encodeURIComponent(path);
-			if (at !== undefined && at !== null) {
-				url += '&at=' + encodeURIComponent(String(at.turn) + ':' + String(at.seq) + ':' + String(at.index));
-			}
-			return url;
+			if (at === undefined || at === null) return url;
+			/* `at` means two different things, and they are not interchangeable: a
+			 * session read addresses a TURN (`turn:seq:index`), while a commit read
+			 * addresses a COMMIT and carries its id verbatim. Formatting a commit id
+			 * as a turn produced `at=<sha>:undefined:undefined` — a read that could
+			 * only fail. */
+			var coordinate = scope === 'commit'
+				? String(at)
+				: String(at.turn) + ':' + String(at.seq) + ':' + String(at.index);
+			return url + '&at=' + encodeURIComponent(coordinate);
 		}
 
 		function createController() {
@@ -1132,6 +1182,9 @@ window.__ModuleLoader__.load({
 			var state = initialState();
 			var generation = 0;
 			var diffGeneration = 0;
+			/** One generation per history axis: the commit list and one commit's files. */
+			var historyGeneration = 0;
+			var commitGeneration = 0;
 			/**
 			 * Mount epoch. `reset()` advances it, so a read that was in flight
 			 * when the view unmounted cannot write its answer into the state a
@@ -1382,7 +1435,11 @@ window.__ModuleLoader__.load({
 					 * (idle) or failed (error) — those are exactly the re-reads. */
 					if (state.selected === path
 						&& (state.diffPhase === 'ready' || state.diffPhase === 'norecord' || state.diffPhase === 'loading')) return;
-					var file = state.files.find(function (entry) { return entry.path === path; });
+					/* A file chosen while a COMMIT is selected is read in that commit's
+					 * scope: the same path, a different content, and the commit id travels
+					 * with the read. */
+					var inCommit = state.selectedSha !== null;
+					var file = (inCommit ? state.commitFiles : state.files).find(function (entry) { return entry.path === path; });
 					if (file === undefined) return;
 					var current = (diffGeneration += 1);
 					var started = epoch;
@@ -1394,7 +1451,7 @@ window.__ModuleLoader__.load({
 					 * changed) has no stored comparison: reading one would 404 and read as
 					 * a failure, when the honest answer is that none was kept. */
 					var coordinate = coordinateForView(file, state);
-					if (state.scope === SESSION && coordinate === undefined) {
+					if (!inCommit && state.scope === SESSION && coordinate === undefined) {
 						patch({ selected: path, selectedPrint: fingerprint(file), diff: null, diffPath: undefined, diffPhase: 'norecord', diffError: null });
 						return;
 					}
@@ -1410,7 +1467,9 @@ window.__ModuleLoader__.load({
 					});
 					var result;
 					try {
-						result = await readJson(fileUrl(state.scope, sessionId, path, coordinate), undefined);
+						result = await readJson(inCommit
+							? fileUrl('commit', sessionId, path, state.selectedSha)
+							: fileUrl(state.scope, sessionId, path, coordinate), undefined);
 					} catch (error) {
 						if (stale()) return;
 						patch({ diffPhase: 'error', diffError: 'error.generic', diff: null, diffPath: undefined });
@@ -1422,6 +1481,90 @@ window.__ModuleLoader__.load({
 						return;
 					}
 					patch({ diffPhase: 'ready', diffPath: path, diff: result.value, diffError: null });
+				},
+
+				/**
+				 * Read the repository's history.
+				 *
+				 * History is a separate axis from the working tree: it moves only when
+				 * something commits, so a silent tick reuses the entries already on
+				 * screen unless their ids changed (an entry keeps its identity, which is
+				 * what lets the list's rows stay the same elements).
+				 */
+				readHistory: async function (sessionId, options) {
+					var silent = options !== undefined && options.silent === true;
+					var current = (historyGeneration += 1);
+					var started = epoch;
+					if (!silent) patch({ historyPhase: 'loading', historyError: null });
+					var result;
+					try {
+						result = await readJson(historyUrl(sessionId), undefined);
+					} catch (error) {
+						if (current !== historyGeneration || started !== epoch) return;
+						patch({ historyPhase: 'error', historyError: 'error.generic' });
+						return;
+					}
+					if (current !== historyGeneration || started !== epoch) return;
+					if (result.failed !== undefined) {
+						patch({ historyPhase: 'error', historyError: result.failed });
+						return;
+					}
+					var incoming = Array.isArray(result.value.commits) ? result.value.commits : [];
+					var previous = new Map();
+					for (var at = 0; at < state.history.length; at += 1) previous.set(state.history[at].sha, state.history[at]);
+					var commits = incoming.map(function (entry) {
+						var held = previous.get(entry.sha);
+						return held !== undefined && held.subject === entry.subject && held.short === entry.short ? held : entry;
+					});
+					patch({ historyPhase: 'ready', historyError: null, history: commits, historyMore: result.value.more === true });
+				},
+
+				/** Show the working tree again: the uncommitted files, not a commit. */
+				selectWorktree: function (sessionId) {
+					if (state.selectedSha === null) return undefined;
+					var pool = state.files;
+					var selected = pool.length > 0 ? pool[0].path : null;
+					patch({
+						selectedSha: null, commitMeta: null, commitFiles: [], filesPhase: 'ready',
+						selected: selected, selectedPrint: undefined, diff: null, diffPath: undefined,
+						diffPhase: 'idle', diffError: null,
+					});
+					if (selected === null) return undefined;
+					return controller.select(sessionId, selected);
+				},
+
+				/**
+				 * Show one commit: its message, its files, and the first file's diff.
+				 *
+				 * The files come from the commit itself rather than from the working
+				 * tree, because that is the whole point of browsing history — the tree
+				 * on disk is a different content.
+				 */
+				selectCommit: async function (sessionId, sha) {
+					if (sha === state.selectedSha) return;
+					var current = (commitGeneration += 1);
+					var started = epoch;
+					patch({
+						selectedSha: sha, commitMeta: null, commitFiles: [], filesPhase: 'loading',
+						selected: null, selectedPrint: undefined, diff: null, diffPath: undefined,
+						diffPhase: 'idle', diffError: null, filesError: null,
+					});
+					var result;
+					try {
+						result = await readJson(commitUrl(sessionId, sha), undefined);
+					} catch (error) {
+						if (current !== commitGeneration || started !== epoch) return;
+						patch({ filesPhase: 'error', filesError: 'error.generic' });
+						return;
+					}
+					if (current !== commitGeneration || started !== epoch) return;
+					if (result.failed !== undefined) {
+						patch({ filesPhase: 'error', filesError: result.failed });
+						return;
+					}
+					var files = Array.isArray(result.value.files) ? result.value.files : [];
+					patch({ filesPhase: 'ready', filesError: null, commitMeta: result.value.commit ?? null, commitFiles: files });
+					if (files.length > 0) await controller.select(sessionId, files[0].path);
 				},
 
 				/**
@@ -1497,6 +1640,9 @@ window.__ModuleLoader__.load({
 							: { key: 'commit.clean', values: {} },
 					});
 					await controller.load(sessionId);
+					/* The commit the reader just made is the newest entry of the history
+					 * they were browsing, so that list is stale by construction. */
+					await controller.readHistory(sessionId);
 				},
 
 				/** Forget the mounted session's data when the view unmounts. */
@@ -2537,6 +2683,7 @@ window.__ModuleLoader__.load({
 
 			React.useEffect(function () {
 				void controller.load(sessionId);
+				void controller.readHistory(sessionId);
 				return function () {
 					controller.reset();
 				};
@@ -2587,23 +2734,29 @@ window.__ModuleLoader__.load({
 			}, [copied]);
 
 			var files = state.files;
-			/* The pool the turn axis leaves: this turn's files, or the files that
-			 * exist as of the bound. The search box narrows it further, and the detail
-			 * pane follows it — so a file the chosen axis excludes shows the empty
-			 * state rather than another turn's comparison. */
-			var pool = visibleFiles(files, state);
-			var stateView = state.scope === SESSION && state.viewMode === STATE_MODE;
-			var deletedCount = stateView ? stateAt(files, boundTurn(state)).deleted : 0;
+			/* Which axis the pane is showing: a commit from the history, or the
+			 * working tree — whose first row is the uncommitted changes. */
+			var inCommit = state.selectedSha !== null;
+			var listed = inCommit ? state.commitFiles : state.files;
+			var listPhase = inCommit ? state.filesPhase : state.phase;
+			var listError = inCommit ? state.filesError : state.error;
 			var needle = filter.trim().toLowerCase();
-			var visible = needle === ''
-				? pool
-				: pool.filter(function (file) {
+			var commits = needle === ''
+				? state.history
+				: state.history.filter(function (entry) {
+					return entry.subject.toLowerCase().indexOf(needle) !== -1
+						|| entry.sha.indexOf(needle) === 0
+						|| entry.short.indexOf(needle) === 0;
+				});
+			var visible = needle === '' || inCommit
+				? listed
+				: listed.filter(function (file) {
 					return (file.display || file.path).toLowerCase().indexOf(needle) !== -1
 						|| file.path.toLowerCase().indexOf(needle) !== -1;
 				});
 			var selectedFile = state.selected === null
 				? undefined
-				: pool.find(function (file) { return file.path === state.selected; });
+				: listed.find(function (file) { return file.path === state.selected; });
 			var selectedFacts = selectedFile === undefined ? undefined : factsForView(selectedFile, state);
 			var selectedTurn = selectedFile === undefined ? undefined : changeTurnFor(selectedFile, state);
 			var notice = noticeFor(state, t);
@@ -2618,54 +2771,15 @@ window.__ModuleLoader__.load({
 				void controller.select(sessionId, path);
 			}, [controller, sessionId]);
 
-			/**
-			 * One turn chip: how many files that turn accounts for, and whether it is
-			 * the one being viewed. `null` is the aggregate view.
-			 *
-			 * The count follows the axis: the turn's own files in the delta view, every
-			 * file changed up to it in the state view — so the strip reads as a
-			 * timeline either way.
-			 */
-			function turnChip(turn, label, count) {
-				return h('button', {
-					key: turn === null ? 'all' : String(turn),
-					type: 'button',
-					className: 'dshdv-turn',
-					'data-turn': turn === null ? 'all' : String(turn),
-					'aria-pressed': state.viewTurn === turn,
-					onClick: function () {
-						markActive();
-						void controller.setTurn(sessionId, turn);
-					},
-				}, label, h('span', { className: 'dshdv-turnCount' }, String(count)));
-			}
-
-			/** One axis chip: which question the turn strip's numbers answer. */
-			function modeChip(mode, label, title) {
-				return h('button', {
-					key: mode,
-					type: 'button',
-					className: 'dshdv-turn',
-					'data-mode': mode,
-					title: title,
-					'aria-pressed': state.viewMode === mode,
-					onClick: function () {
-						markActive();
-						void controller.setMode(sessionId, mode);
-					},
-				}, label);
-			}
-
-			/** How many files one chip accounts for, under the axis in force. */
-			function countFor(turn) {
-				if (!stateView) return filesForTurn(files, turn).length;
-				return turn === null ? stateAt(files, boundTurn(state)).rows.length : stateAt(files, turn).rows.length;
-			}
-
-			function selectScope(scope) {
+			/** Browse one commit, or come back to the working tree. */
+			var selectCommit = function (sha) {
 				markActive();
-				void controller.setScope(scope, sessionId);
-			}
+				void controller.selectCommit(sessionId, sha);
+			};
+			var selectWorktree = function () {
+				markActive();
+				void controller.selectWorktree(sessionId);
+			};
 
 			function copyPath() {
 				if (selectedFile === undefined) return;
@@ -2680,44 +2794,113 @@ window.__ModuleLoader__.load({
 				}
 			}
 
-			/* The list pane: one state of four — reading, failed, empty, or rows. */
-			var listBody;
-			if (state.phase === 'loading') {
-				listBody = h('div', { className: 'dshdv-status', role: 'status' }, h('p', null, t('list.loading')));
-			} else if (state.phase === 'error') {
-				listBody = h('div', { className: 'dshdv-status' },
-					h('p', null, t(state.error === null ? 'error.generic' : state.error)),
+			/**
+			 * The history column: the working tree first, then every commit.
+			 *
+			 * The working-tree row is what keeps this tab useful in a workflow that
+			 * commits per round: the tree is usually clean, and "nothing uncommitted"
+			 * is a fact worth showing rather than an empty panel.
+			 */
+			var historyBody;
+			if (state.historyPhase === 'loading') {
+				historyBody = h('div', { className: 'dshdv-status', role: 'status' }, h('p', null, t('list.loading')));
+			} else {
+				/* The working-tree row is always there — it is the one axis that needs
+				 * no repository to be true, and the way back from a failed history. A
+				 * history that could not be read is a note UNDER it, never a page that
+				 * replaces it. */
+				var historyRows = [
+					h('button', {
+						key: 'worktree',
+						type: 'button',
+						className: 'dshdv-commitRow',
+						'data-dsh-diff-worktree': inCommit ? 'off' : 'on',
+						'aria-selected': !inCommit,
+						title: t('history.worktree'),
+						onClick: selectWorktree,
+					},
+						h('span', { className: 'dshdv-commitSubject' }, t('history.worktree')),
+						h('span', { className: 'dshdv-commitMeta' },
+							h('span', { className: 'dshdv-commitWhen' }, files.length === 0
+								? t('history.clean')
+								: format(t('summary.files'), { count: files.length })))),
+				];
+				if (state.historyPhase === 'error') {
+					historyRows.push(h('div', { key: 'error', className: 'dshdv-status' },
+						h('p', null, t(state.historyError === null ? 'error.generic' : state.historyError)),
+						h('button', {
+							type: 'button', className: 'dshdv-btn',
+							onClick: function () { void controller.readHistory(sessionId); },
+						}, t('error.retry'))));
+				} else if (commits.length === 0) {
+					historyRows.push(h('p', { key: 'empty', className: 'dshdv-note' }, t(needle === '' ? 'history.empty' : 'list.emptyFiltered')));
+				} else {
+					historyRows = historyRows.concat(commits.map(function (entry) {
+						return h('button', {
+							key: entry.sha,
+							type: 'button',
+							className: 'dshdv-commitRow',
+							'data-commit': entry.sha,
+							'data-commit-short': entry.short,
+							'aria-selected': entry.sha === state.selectedSha,
+							title: entry.subject,
+							onClick: function () { selectCommit(entry.sha); },
+						},
+							h('span', { className: 'dshdv-commitSubject' }, entry.subject),
+							h('span', { className: 'dshdv-commitMeta' },
+								h('span', { className: 'dshdv-commitSha' }, entry.short),
+								h('span', { className: 'dshdv-commitWhen' }, shellTime(t, entry.at))));
+					}));
+				}
+				historyBody = historyRows;
+			}
+			var historyPane = h('div', { className: 'dshdv-list' },
+				h('div', {
+					className: 'dshdv-listBody', role: 'listbox', 'aria-label': t('history.label'), 'data-dsh-diff-history': '',
+				}, historyBody));
+
+			/* The files of whatever is selected: a commit's own files, or the working
+			 * tree's changed files. */
+			var filesBody;
+			if (listPhase === 'loading') {
+				filesBody = h('div', { className: 'dshdv-status', role: 'status' }, h('p', null, t('list.loading')));
+			} else if (listPhase === 'error') {
+				filesBody = h('div', { className: 'dshdv-status' },
+					h('p', null, t(listError === null ? 'error.generic' : listError)),
 					h('button', {
 						type: 'button', className: 'dshdv-btn',
-						onClick: function () { void controller.load(sessionId); },
+						onClick: function () {
+							if (inCommit) void controller.selectCommit(sessionId, state.selectedSha);
+							else void controller.load(sessionId);
+						},
 					}, t('error.retry')));
-			} else if (visible.length === 0) {
-				listBody = h('div', { className: 'dshdv-status' }, h('p', null, needle === '' ? t('list.empty') : t('list.emptyFiltered')));
+			} else if (listed.length === 0) {
+				filesBody = h('div', { className: 'dshdv-status' },
+					h('p', null, inCommit ? t('history.noFiles') : t('list.empty')));
 			} else {
-				listBody = visible.map(function (file) {
+				filesBody = visible.map(function (file) {
 					var facts = factsForView(file, state);
-					var changed = stateView ? changeTurnFor(file, state) : undefined;
 					return h(FileRow, {
 						key: file.path, file: file, t: t, selected: file.path === state.selected,
 						status: facts.status, added: facts.added, deleted: facts.deleted,
-						turnTag: changed === undefined ? undefined : format(t('turn.tag'), { turn: String(changed) }),
+						turnTag: undefined,
 						onSelect: onSelect,
 					});
 				});
 			}
-			var listPane = h('div', { className: 'dshdv-list' },
+			var filesPane = h('div', { className: 'dshdv-gitFiles' },
 				h('div', {
 					className: 'dshdv-listBody', role: 'listbox', 'aria-label': t('view.label'), 'data-dsh-diff-list': '',
-				}, listBody));
+				}, filesBody));
 
 			/**
 			 * The detail pane: the selected file's comparison behind its header.
 			 *
-			 * This wrapper is load-bearing, not decoration: `.dshdv-main` is the
-			 * row that places the file list beside the comparison, so the header
-			 * and the scrolling body have to arrive as ONE child or they become
-			 * siblings of the list and fight it for width. A fragment here would
-			 * splice them into that row — which is exactly the bug this replaced.
+			 * This wrapper is load-bearing, not decoration: the two layers of the
+			 * right column are flex children of it, so the header and the scrolling
+			 * body have to arrive as ONE child or they become siblings of the file
+			 * list and fight it for width. A fragment here would splice them into
+			 * that row — which is exactly the bug this replaced.
 			 */
 			var detailBody;
 			if (selectedFile === undefined) {
@@ -2758,9 +2941,6 @@ window.__ModuleLoader__.load({
 							className: 'dshdv-headPath', title: selectedFile.path, 'data-dsh-diff-path': selectedFile.path,
 						}, selectedFile.display || selectedFile.path),
 						h('span', { className: 'dshdv-summary' }, counts),
-						stateView && selectedTurn !== undefined
-							? h('span', { className: 'dshdv-turnTag' }, format(t('turn.lastChange'), { turn: String(selectedTurn) }))
-							: null,
 						state.diffPhase === 'loading' ? h('span', { className: 'dshdv-headBusy', role: 'status' }, t('diff.loading')) : null,
 						tools),
 					h(DiffBody, {
@@ -2776,29 +2956,23 @@ window.__ModuleLoader__.load({
 
 			return h('div', { className: 'dshdv-root', 'data-dsh-diff-view': state.scope, 'data-conversation-composer-overlay': '' },
 				h('div', { className: 'dshdv-bar' },
-					h('div', { className: 'dshdv-tabs', role: 'tablist', 'aria-label': t('view.label') },
-						h('button', {
-							type: 'button', role: 'tab', className: 'dshdv-tab', 'data-scope': GIT,
-							'aria-selected': state.scope === GIT, title: t('scope.git.title'),
-							onClick: function () { selectScope(GIT); },
-						}, t('scope.git')),
-						h('button', {
-							type: 'button', role: 'tab', className: 'dshdv-tab', 'data-scope': SESSION,
-							'aria-selected': state.scope === SESSION, title: t('scope.session.title'),
-							onClick: function () { selectScope(SESSION); },
-						}, t('scope.session'))),
+					h('span', { className: 'dshdv-headPath', title: state.repo === null ? '' : state.repo, 'data-dsh-diff-repo': '' },
+						state.repo === null ? t('history.label') : baseName(state.repo)),
 					h('span', { className: 'dshdv-summary', 'data-dsh-diff-summary': '' },
-						format(t('summary.files'), { count: pool.length }),
-						stateView
-							? (deletedCount > 0 ? h('span', { className: 'dshdv-del' }, format(t('summary.deletedFiles'), { count: deletedCount })) : null)
+						inCommit && state.commitMeta !== null
+							? h(React.Fragment, null,
+								h('span', { className: 'dshdv-commitSha' }, state.commitMeta.short),
+								h('span', null, state.commitMeta.author),
+								h('span', null, shellTime(t, state.commitMeta.at)))
 							: h(React.Fragment, null,
+								h('span', null, format(t('summary.files'), { count: files.length })),
 								h('span', { className: 'dshdv-add' }, format(t('summary.added'), { count: state.totals.added })),
 								h('span', { className: 'dshdv-del' }, format(t('summary.deleted'), { count: state.totals.deleted })))),
 					h('span', { className: 'dshdv-barSpacer' }),
 					h('span', { className: 'dshdv-filter' },
 						h('input', {
-							type: 'search', value: filter, placeholder: t('filter.placeholder'),
-							'aria-label': t('filter.placeholder'), 'data-dsh-diff-filter': '',
+							type: 'search', value: filter, placeholder: t('history.filter'),
+							'aria-label': t('history.filter'), 'data-dsh-diff-filter': '',
 							onChange: function (event) { setFilter(event.target.value); },
 						}),
 						filter === '' ? null : h('button', {
@@ -2814,7 +2988,10 @@ window.__ModuleLoader__.load({
 					h('button', {
 						type: 'button', className: 'dshdv-btn', title: t('action.refresh'), 'aria-label': t('action.refresh'),
 						'data-dsh-diff-refresh': '',
-						onClick: function () { void controller.refresh(sessionId); },
+						onClick: function () {
+							void controller.refresh(sessionId);
+							void controller.readHistory(sessionId);
+						},
 					}, icon(ICON_REFRESH)),
 					/* The one write action. Two presses, because a commit is a
 					 * decision about history: the first arms it and names what will
@@ -2832,7 +3009,7 @@ window.__ModuleLoader__.load({
 						onClick: function () {
 							markActive();
 							if (state.commitPhase === 'confirm') {
-								void controller.commit(sessionId, state.viewTurn === null ? state.turn : state.viewTurn);
+								void controller.commit(sessionId, state.turn);
 								return;
 							}
 							controller.armCommit();
@@ -2843,20 +3020,6 @@ window.__ModuleLoader__.load({
 							: state.commitPhase === 'confirm'
 								? t('commit.confirm')
 								: icon(ICON_COMMIT))),
-
-				state.scope === SESSION && state.turns.length > 0
-					? h('div', {
-						className: 'dshdv-turns', role: 'group', 'aria-label': t('turn.label'), 'data-dsh-diff-turns': '',
-					},
-						turnChip(null, t('turn.all'), countFor(null)),
-						state.turns.map(function (turn) {
-							return turnChip(turn, format(t('turn.chip'), { turn: String(turn) }), countFor(turn));
-						}),
-						h('span', { className: 'dshdv-turnsSpacer' }),
-						h('span', { className: 'dshdv-modes', role: 'group', 'aria-label': t('mode.label'), 'data-dsh-diff-modes': '' },
-							modeChip(DELTA_MODE, t('mode.delta'), t('mode.delta.title')),
-							modeChip(STATE_MODE, t('mode.state'), t('mode.state.title'))))
-					: null,
 
 				notice === null ? null : h('p', { className: 'dshdv-note', 'data-dsh-diff-notice': notice }, t(notice)),
 
@@ -2869,7 +3032,7 @@ window.__ModuleLoader__.load({
 						role: 'status',
 					}, format(t(state.commitNote.key), state.commitNote.values)),
 
-				h('div', { className: 'dshdv-main' }, listPane, detailPane));
+				h('div', { className: 'dshdv-main' }, historyPane, h('div', { className: 'dshdv-gitRight' }, filesPane, detailPane)));
 		}
 
 		/**
@@ -4187,3 +4350,4 @@ window.__ModuleLoader__.load({
 		return module.exports;
 	},
 });
+

@@ -253,6 +253,23 @@ check('the ghosted textarea keeps a visible caret', ...)   // 字形透明但光
 | 行度量 | `padding:5px 10px`、`gap:6px`、`border-radius:var(--dsw-radius-md)`、每级缩进 18px、`scrollbar-gutter:stable`、悬停用 `--dsw-alias-interactive-bg-hover`（全部逐字对齐 FilesBody.module.css） |
 
 保留的自家能力：脏标记（`●` 在行尾与标签上）、每级的 loading/失败/空/截断提示行、多标签与编辑器。
+## 第一个页签：Git 浏览（原来是「变更」）
+
+改的原因很直接：**每轮"记一笔"之后工作区通常是干净的**，所以"工作区 vs HEAD"的变更视图经常空着 —— 而历史才是真正会看的东西。
+
+左栏是提交列表，**第一行是「工作区（未提交）」**：
+
+| 选中 | 右栏（上 1/3 文件，下 2/3 对比） |
+|---|---|
+| 工作区 | 未提交的改动文件，对比走 `git diff HEAD` |
+| 某个提交 | **那个提交自己的文件**（`diff-tree --root --first-parent`）与 `scope=commit&at=<sha>` 的对比 |
+
+- 「记一笔」提交按钮**保留**（它是唯一的写操作）；提交后**历史会重读**，新提交立刻出现在第一行。
+- 提交列表的 `--root` 让**仓库的第一个提交**也能浏览（对空树做 diff），`--first-parent` 让合并提交对着它合入的那条分支读，而不是变成一个单文件视图无法渲染的组合 diff。
+- 历史读取失败只在「工作区」行**下面**出一条提示 —— 那一行是唯一不需要仓库也成立的东西，不能被整块错误页取代。
+- 搜索框改为**搜索提交**（主题 / sha 前缀）。
+- 按你的选择，**「本次会话」作用域直接去掉了**（逐轮页签已经能按轮次看文件改动）；工作区/会话两套作用域切换、轮次筛选条、delta/state 两种轴一并移除，相关样式也删了。
+- 已知遗留：控制器里仍保留会话作用域那几个动作（`setScope`/`setTurn`/`setMode` 与按轮次取对比的路径），界面上已无法到达 —— 下次清理时一并删掉，眼下不动它是为了不牵动已通过的取数逻辑。
 ## 第三个页签：文件（树 + 多标签编辑器）
 
 参考两个已装插件：`dsh-vscode`（文件面板）与 `dsh-better-sidebar`（标签工作台 + CodeMirror 编辑器）。调研结论直接决定了实现方式：
@@ -356,8 +373,8 @@ dsh plugin add link:F:/deepseek_harness_workspace/dsh-diff-view
 ## 测试
 
 ```bash
-node tools/test-host.mjs      # 155 项：解析器对真实 git 输出、路由行为、会话折叠与兜底、围栏
-node tools/smoke-client.mjs   # 305 项：契约、注册、渲染、交互、失败态
+node tools/test-host.mjs      # 170 项：解析器对真实 git 输出、路由行为、会话折叠与兜底、围栏
+node tools/smoke-client.mjs   # 271 项：契约、注册、渲染、交互、失败态
 npm test                      # 两个都跑
 ```
 

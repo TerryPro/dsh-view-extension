@@ -698,6 +698,41 @@ check('the strip button fills with the shared interactive token', styles.include
 
 const FILES_GIT = '/api/dsh-diff/files?scope=git&sessionId=sess-1'
 const FILES_SESSION = '/api/dsh-diff/files?scope=session&sessionId=sess-1'
+/** The history browser's three reads: the list, one commit, one file in it. */
+const HISTORY_URL = '/api/dsh-diff/commits?sessionId=sess-1&limit=40'
+const COMMIT_SHA = 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0'
+const COMMIT_DETAIL = `/api/dsh-diff/commit-detail?sessionId=sess-1&sha=${COMMIT_SHA}`
+const COMMIT_FILE_KEEP = `/api/dsh-diff/file?scope=commit&sessionId=sess-1&path=src%2Fkeep.txt&at=${COMMIT_SHA}`
+const HISTORY = {
+  ok: true,
+  repo: 'F:/ws',
+  cwd: 'F:/ws',
+  more: false,
+  commits: [
+    { sha: COMMIT_SHA, short: 'a1b2c3d', author: 'hexiaoyu', at: new Date(Date.now() - 60_000).toISOString(), subject: 'second round: tighten the parser' },
+    { sha: 'b'.repeat(40), short: 'bbbbbbb', author: 'hexiaoyu', at: new Date(Date.now() - 3 * 3_600_000).toISOString(), subject: 'first round: read the session log' },
+  ],
+}
+const COMMIT_FILES = {
+  ok: true,
+  repo: 'F:/ws',
+  cwd: 'F:/ws',
+  commit: HISTORY.commits[0],
+  files: [
+    { path: 'src/keep.txt', status: 'modified', added: 2, deleted: 0 },
+    { path: 'docs/note.md', status: 'added', added: 5, deleted: 0 },
+  ],
+}
+const COMMIT_DIFF = {
+  ok: true,
+  scope: 'commit',
+  path: 'src/keep.txt',
+  kind: 'text',
+  before: true,
+  after: true,
+  coarse: false,
+  hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 2, lines: [' first', '+committed'] }],
+}
 const FILE_KEEP = '/api/dsh-diff/file?scope=git&sessionId=sess-1&path=src%2Fkeep.txt'
 const FILE_UNTRACKED = '/api/dsh-diff/file?scope=git&sessionId=sess-1&path=untracked.txt'
 
@@ -784,6 +819,9 @@ function seedRoutes() {
   responses = new Map([
     [FILES_GIT, GIT_LIST],
     [FILES_SESSION, SESSION_LIST],
+    [HISTORY_URL, HISTORY],
+    [COMMIT_DETAIL, COMMIT_FILES],
+    [COMMIT_FILE_KEEP, COMMIT_DIFF],
     [FILE_KEEP, TEXT_DIFF],
     [FILE_UNTRACKED, {
       ok: true,
@@ -885,6 +923,13 @@ const viewProps = {
       'files.oversized': '文件太大（上限 {count} 字节）',
       'files.saveFailed': '保存失败：{detail}',
       'files.root': '工作目录',
+      /* The history browser's copy. */
+      'history.label': '提交历史',
+      'history.worktree': '工作区（未提交）',
+      'history.clean': '干净',
+      'history.empty': '这个仓库还没有提交',
+      'history.noFiles': '这个提交没有可显示的文件',
+      'history.filter': '搜索提交…',
       'files.mode': '显示方式',
       'files.mode.preview': '预览',
       'files.mode.split': '并排',
@@ -1096,141 +1141,6 @@ tree = await rerender(viewElement())
 check('turning wrap off persists the choice', storage.get('dsh-diff-view.wrap') === 'nowrap', String(storage.get('dsh-diff-view.wrap')))
 check('the wrap control reports its state', findAll(tree, node => node.props !== undefined && node.props['data-dsh-diff-wrap'] === 'off').length === 1)
 
-console.log('\nfiltering')
-const filterInput = findAll(tree, node => node.type === 'input' && node.props !== undefined && node.props['data-dsh-diff-filter'] !== undefined)[0]
-check('the filter field is present', filterInput !== undefined)
-filterInput.props.onChange({ target: { value: 'untracked' } })
-tree = await rerender(viewElement())
-check('the filter narrows the list', findAll(tree, node => node.props !== undefined && node.props['data-path'] !== undefined).length === 1, String(findAll(tree, node => node.props !== undefined && node.props['data-path'] !== undefined).length))
-check('the kept row is the matching one', findAll(tree, node => node.props !== undefined && node.props['data-path'] === 'untracked.txt').length === 1)
-filterInput.props.onChange({ target: { value: 'nothing-matches' } })
-tree = await rerender(viewElement())
-check('an empty filter result explains itself', textOf(tree).includes('没有匹配的文件'), textOf(tree))
-
-console.log('\nthe session scope')
-seedRoutes()
-const sessionTab = findAll(tree, node => node.type === 'button' && node.props !== undefined && node.props['data-scope'] === 'session')[0]
-check('the scope switch is present', sessionTab !== undefined)
-sessionTab.props.onClick()
-await settle(4)
-tree = await rerender(viewElement())
-check('the session scope reads its own list', requests.some(entry => entry.url === FILES_SESSION), JSON.stringify(requests.map(entry => entry.url)))
-check('the session scope keeps its own copy', textOf(tree).includes('本次会话'), textOf(tree))
-const sessionFileCall = requests.map(entry => parsed(entry.url)).find(entry => entry.pathname === '/api/dsh-diff/file')
-check('a session file carries its turn coordinate', sessionFileCall?.searchParams.get('at') === '2:9:0', sessionFileCall?.search ?? 'no file call')
-check('a session file decodes to its repository path', sessionFileCall?.searchParams.get('path') === 'src/keep.txt', sessionFileCall?.searchParams.get('path') ?? '')
-check('the chosen scope is remembered', storage.get('dsh-diff-view.scope') === 'session', String(storage.get('dsh-diff-view.scope')))
-
-console.log('\nthe turn filter')
-/** The turn chips currently rendered, in order. */
-const turnChips = () => findAll(tree, node => node.type === 'button' && node.props !== undefined && node.props['data-turn'] !== undefined)
-/** The row paths currently rendered. */
-const rowPaths = () => findAll(tree, node => node.props !== undefined && node.props['data-path'] !== undefined).map(node => node.props['data-path'])
-/** The last session comparison the view asked for. */
-const lastSessionAt = () => {
-  const call = requests.map(entry => parsed(entry.url)).filter(entry => entry.pathname === '/api/dsh-diff/file' && entry.searchParams.get('scope') === 'session').pop()
-  return call?.searchParams.get('at') ?? null
-}
-
-seedRoutes()
-// The search box still holds the previous block's needle; clear it the way a
-// reader would before reading the turn strip's own numbers.
-const staleFilter = findAll(tree, node => node.type === 'input' && node.props !== undefined && node.props['data-dsh-diff-filter'] !== undefined)[0]
-staleFilter.props.onChange({ target: { value: '' } })
-tree = await rerender(viewElement())
-check('the turn strip is present in the session scope', findAll(tree, node => node.props !== undefined && node.props['data-dsh-diff-turns'] !== undefined).length === 1)
-/** One chip, found by the turn it names — the strip's order is asserted separately. */
-const chipFor = (turn) => turnChips().find(chip => chip.props['data-turn'] === String(turn))
-const chips = turnChips()
-check('one chip per turn plus the aggregate', chips.length === 3, JSON.stringify(chips.map(chip => chip.props['data-turn'])))
-check('the first turn is at the top of the strip', JSON.stringify(chips.map(chip => chip.props['data-turn'])) === JSON.stringify(['all', '1', '2']), JSON.stringify(chips.map(chip => chip.props['data-turn'])))
-check('the aggregate chip counts every file', textOf(chips[0]).includes('4'), textOf(chips[0]))
-check('a turn chip counts only its own files', textOf(chipFor(1)).includes('2') && textOf(chipFor(2)).includes('3'), `${textOf(chipFor(1))} / ${textOf(chipFor(2))}`)
-check('the aggregate chip starts pressed', chips[0].props['aria-pressed'] === true)
-check('the aggregate view lists every file', rowPaths().length === 4, JSON.stringify(rowPaths()))
-
-// Turn 1: the two files it touched, and the comparison read at TURN 1's coordinate.
-chipFor(1).props.onClick()
-await settle(4)
-tree = await rerender(viewElement())
-check('choosing a turn presses its chip', chipFor(1).props['aria-pressed'] === true, JSON.stringify(turnChips().map(chip => chip.props['aria-pressed'])))
-check('choosing a turn narrows the list to its files', JSON.stringify(rowPaths().sort()) === JSON.stringify(['src/early.txt', 'src/keep.txt']), JSON.stringify(rowPaths()))
-check('the first file of that turn becomes selected', lastSessionAt() === '1:4:0', String(lastSessionAt()))
-/* This pair of assertions is also the regression guard for a memo comparator
- * that compared a prop DiffBody never receives: a comparison that arrived in the
- * SAME phase as the one on screen was silently ignored, so the pane kept showing
- * the previous turn's (or file's) content. A local read is fast enough that no
- * render happens in between, which is exactly how that bug survived the git-scope
- * tests — there the phase changes, here it may not. */
-check('the comparison on screen is that turn\'s', textOf(tree).includes('turn-one'), textOf(tree))
-const firstRowCounts = textOf(findAll(tree, node => node.props !== undefined && node.props['data-path'] === 'src/keep.txt')[0])
-check('a row shows THAT turn\'s counts', firstRowCounts.includes('+1') && firstRowCounts.includes('+4') === false, firstRowCounts)
-
-// Turn 2: only the files that turn changed, deletions included.
-chipFor(2).props.onClick()
-await settle(4)
-tree = await rerender(viewElement())
-check('the other turn lists only its own files', JSON.stringify(rowPaths().sort()) === JSON.stringify(['src/gone.txt', 'src/keep.txt', 'src/late.txt']), JSON.stringify(rowPaths()))
-check('the comparison is read at that turn\'s coordinate', lastSessionAt() === '2:9:0', String(lastSessionAt()))
-check('the comparison on screen switched turns', textOf(tree).includes('turn-two') && textOf(tree).includes('turn-one') === false, textOf(tree))
-check('the row counts are that turn\'s', textOf(findAll(tree, node => node.props !== undefined && node.props['data-path'] === 'src/keep.txt')[0]).includes('+4'), textOf(findAll(tree, node => node.props !== undefined && node.props['data-path'] === 'src/keep.txt')[0]))
-
-// Back to the aggregate: everything, compared at each file's newest turn.
-chipFor('all').props.onClick()
-await settle(4)
-tree = await rerender(viewElement())
-check('the aggregate chip restores every file', rowPaths().length === 4, JSON.stringify(rowPaths()))
-check('the aggregate view compares at the newest turn again', lastSessionAt() === '2:9:0', String(lastSessionAt()))
-
-console.log('\nthe state axis')
-/** The mode chips currently rendered. */
-const modeChips = () => findAll(tree, node => node.type === 'button' && node.props !== undefined && node.props['data-mode'] !== undefined)
-/** Press the chip for one axis. */
-const chooseMode = async (mode) => {
-  modeChips().find(chip => chip.props['data-mode'] === mode).props.onClick()
-  await settle(4)
-  tree = await rerender(viewElement())
-}
-
-seedRoutes()
-check('the axis switch is present', modeChips().length === 2, String(modeChips().length))
-check('the delta axis starts pressed', modeChips()[0].props['aria-pressed'] === true && modeChips()[1].props['aria-pressed'] === false, JSON.stringify(modeChips().map(chip => chip.props['aria-pressed'])))
-check('the delta axis counts a turn\'s OWN files', textOf(chipFor(2)).includes('3'), textOf(chipFor(2)))
-check('the delta axis lists every changed file', rowPaths().length === 4, JSON.stringify(rowPaths()))
-
-// Turn 2 in the delta axis: exactly what that turn touched, deletions included.
-chipFor(2).props.onClick()
-await settle(4)
-tree = await rerender(viewElement())
-check('the delta axis lists what the turn touched', JSON.stringify(rowPaths().sort()) === JSON.stringify(['src/gone.txt', 'src/keep.txt', 'src/late.txt']), JSON.stringify(rowPaths()))
-
-// The state axis at the same turn: what EXISTS after it.
-await chooseMode('state')
-check('the state axis is pressed', modeChips()[1].props['aria-pressed'] === true, JSON.stringify(modeChips().map(chip => chip.props['aria-pressed'])))
-check('a file deleted by the turn leaves the state list', rowPaths().includes('src/gone.txt') === false, JSON.stringify(rowPaths()))
-check('a file added by the turn joins the state list', rowPaths().includes('src/late.txt') === true, JSON.stringify(rowPaths()))
-check('the state axis keeps files changed by earlier turns', rowPaths().includes('src/early.txt') === true, JSON.stringify(rowPaths()))
-check('the state list is the files that exist', rowPaths().length === 3, JSON.stringify(rowPaths()))
-check('the deleted file is counted, not listed', textOf(tree).includes('1 个已删除'), textOf(tree))
-check('the axis switch is remembered', storage.get('dsh-diff-view.mode') === 'state', String(storage.get('dsh-diff-view.mode')))
-check('the state axis counts files changed up to the turn', textOf(chipFor(1)).includes('2'), textOf(chipFor(1)))
-
-// A file whose last change is an EARLIER turn is still compared at that turn.
-const earlyRow = findAll(tree, node => node.props !== undefined && node.props['data-path'] === 'src/early.txt')[0]
-check('a row names the turn of its last change', textOf(earlyRow).includes('T1'), textOf(earlyRow))
-earlyRow.props.onClick()
-await settle(4)
-tree = await rerender(viewElement())
-check('selecting it reads ITS last change, not the bound turn', lastSessionAt() === '1:4:1', String(lastSessionAt()))
-check('the pane shows that earlier turn\'s comparison', textOf(tree).includes('early'), textOf(tree))
-check('the header names the last change', textOf(tree).includes('最后一次改动：第 1 轮'), textOf(tree))
-
-// Back to the delta axis: the same turn now lists only what it touched.
-await chooseMode('delta')
-check('the delta axis is pressed again', modeChips()[0].props['aria-pressed'] === true, JSON.stringify(modeChips().map(chip => chip.props['aria-pressed'])))
-check('the delta axis drops the file the turn did not change', rowPaths().includes('src/early.txt') === false, JSON.stringify(rowPaths()))
-check('the delta axis brings the deleted file back', rowPaths().includes('src/gone.txt') === true, JSON.stringify(rowPaths()))
-
 console.log('\nthe checkpoint button')
 const COMMIT_URL = '/api/dsh-diff/commit'
 /** The button as it currently stands. */
@@ -1249,6 +1159,7 @@ const pressCheckpoint = async () => {
 seedRoutes()
 check('the checkpoint button is present', commitButton() !== undefined)
 check('it starts idle', commitButton().props['data-dsh-diff-commit'] === 'idle', String(commitButton().props['data-dsh-diff-commit']))
+const historyReadsBefore = requests.filter(entry => entry.url === HISTORY_URL).length
 
 // First press only arms it: nothing is committed until the second.
 commitButton().props.onClick()
@@ -1267,9 +1178,10 @@ const commitCall = requests.filter(entry => entry.url === COMMIT_URL).pop()
 check('the second press commits', commitCall !== undefined, JSON.stringify(requests.map(entry => entry.url)))
 check('it commits with a POST', commitCall?.method === 'POST', String(commitCall?.method))
 check('the body names the session', JSON.parse(commitCall?.body ?? '{}').sessionId === 'sess-1', String(commitCall?.body))
-check('the body names the turn being viewed', JSON.parse(commitCall?.body ?? '{}').turn === 2, String(commitCall?.body))
 check('the button reports the revision it created', textOf(commitNote() ?? { props: {} }).includes('已提交 abc1234'), textOf(tree))
-check('the list is re-read after a commit', requests.filter(entry => entry.url === FILES_SESSION).length > listReadsBefore, JSON.stringify(requests.map(entry => entry.url)))
+/* The history is re-read as well: the commit the reader just made is the newest
+ * row of the list they were looking at. */
+check('the history is re-read after a commit', requests.filter(entry => entry.url === HISTORY_URL).length > historyReadsBefore, JSON.stringify(requests.map(entry => entry.url)))
 check('the button returns to idle', commitButton().props['data-dsh-diff-commit'] === 'done', String(commitButton().props['data-dsh-diff-commit']))
 
 // A clean tree is an answer, not a failure.
@@ -1318,21 +1230,74 @@ unmount()
 tree = await render(viewElement())
 check('a directory outside git says so', textOf(tree).includes('不是 git 仓库'), textOf(tree))
 check('an empty scope lists nothing rather than failing', findAll(tree, node => node.props !== undefined && node.props['data-path'] !== undefined).length === 0)
-check('an empty scope still offers its other scope', findAll(tree, node => node.type === 'button' && node.props !== undefined && node.props['data-scope'] === 'session').length === 1)
+/* No repository means no history either, and the working-tree row is still there
+ * to come back to. */
+check('a repository-less Session still shows the working-tree row', findAll(tree, node => node.props?.['data-dsh-diff-worktree'] !== undefined).length === 1, textOf(tree))
 
-// A Session with nothing recorded in the change recorder answers the same way
-// from the other side.
-responses = new Map([
-  [FILES_SESSION, { ok: true, scope: 'session', cwd: 'F:/ws', repo: null, files: [], added: 0, deleted: 0, turns: [] }],
-])
+// A history read that fails says so, and offers the retry the other panes offer.
+responses = new Map([[HISTORY_URL, { __status: 500, ok: false, error: { code: 'diff/git-failed', message: 'no' } }]])
 unmount.disposeControllers = true
 unmount()
 tree = await render(viewElement())
-const sessionSwitch = findAll(tree, node => node.type === 'button' && node.props !== undefined && node.props['data-scope'] === 'session')[0]
-sessionSwitch.props.onClick()
+await settle(4)
 tree = await rerender(viewElement())
-check('a session with no recorded change says so', findAll(tree, node => node.props !== undefined && node.props['data-dsh-diff-notice'] !== undefined).length === 1, textOf(tree))
-check('the notice names the session scope', textOf(tree).includes('notice.noSession'), textOf(tree))
+check('a failed history read explains itself', textOf(tree).includes('error.generic') || textOf(tree).includes('读取失败'), textOf(tree))
+
+console.log('\nthe history browser')
+seedRoutes()
+unmount.disposeControllers = true
+unmount()
+tree = await render(viewElement())
+await settle(4)
+tree = await rerender(viewElement())
+/** The commit rows, in the order the column shows them. */
+const commitRows = () => findAll(tree, node => node.props?.['data-commit-short'] !== undefined)
+const worktreeRow = () => findAll(tree, node => node.props?.['data-dsh-diff-worktree'] !== undefined)[0]
+const fileRows = () => findAll(tree, node => node.props?.['data-path'] !== undefined)
+
+check('the history column reads the repository', requests.some(entry => entry.url === HISTORY_URL), JSON.stringify(requests.map(entry => entry.url)))
+check('one row per commit, newest first', JSON.stringify(commitRows().map(row => row.props['data-commit-short'])) === JSON.stringify(['a1b2c3d', 'bbbbbbb']), JSON.stringify(commitRows().map(row => row.props['data-commit-short'])))
+check('a row shows what the commit says', textOf(commitRows()[0]).includes('tighten the parser'), textOf(commitRows()[0]))
+check('and names its own id', textOf(commitRows()[0]).includes('a1b2c3d'), textOf(commitRows()[0]))
+/* The row that keeps this tab useful when the tree is clean after a per-round
+ * commit: the working tree is an entry of the list, not an empty panel. */
+check('the working tree is the first row', worktreeRow() !== undefined && textOf(worktreeRow()).includes('工作区'), textOf(worktreeRow()))
+check('it starts selected, showing the uncommitted files', worktreeRow().props['aria-selected'] === true && fileRows().some(row => row.props['data-path'] === 'src/keep.txt'), JSON.stringify(fileRows().map(row => row.props['data-path'])))
+
+// Browsing a commit: its own files, and its own comparison for one of them.
+commitRows()[0].props.onClick()
+await settle(6)
+tree = await rerender(viewElement())
+check('choosing a commit reads that commit', requests.some(entry => entry.url === COMMIT_DETAIL), JSON.stringify(requests.map(entry => entry.url)))
+check('the commit is the selected row', commitRows()[0].props['aria-selected'] === true && worktreeRow().props['aria-selected'] === false, JSON.stringify([commitRows()[0].props['aria-selected'], worktreeRow().props['aria-selected']]))
+check('the file list becomes the commit\'s own files', JSON.stringify(fileRows().map(row => row.props['data-path']).sort()) === JSON.stringify(['docs/note.md', 'src/keep.txt']), JSON.stringify(fileRows().map(row => row.props['data-path'])))
+check('and its diff is read in the commit scope', requests.some(entry => entry.url === COMMIT_FILE_KEEP), JSON.stringify(requests.map(entry => entry.url)))
+tree = await rerender(viewElement())
+/* The rendered row carries the LINE, not the marker: `+` is drawn by CSS. So the
+ * assertion looks for the line the commit's diff holds and for the working
+ * tree's line being absent — the two axes answer with different content. */
+check('the comparison on screen is the commit\'s', textOf(tree).includes('committed') && !textOf(tree).includes('working tree line'), textOf(tree).slice(0, 300))
+
+/* Back to the working tree: the same file, the working tree's content — the two
+ * axes are different reads, which is the whole point of the commit scope. */
+requests.length = 0
+worktreeRow().props.onClick()
+await settle(6)
+tree = await rerender(viewElement())
+check('going back to the working tree re-reads it there', requests.some(entry => entry.url.startsWith('/api/dsh-diff/file?scope=git')), JSON.stringify(requests.map(entry => entry.url)))
+check('and the commit rows are released', commitRows().every(row => row.props['aria-selected'] === false), JSON.stringify(commitRows().map(row => row.props['aria-selected'])))
+
+// The filter searches the history, not the tree.
+const historyFilter = findAll(tree, node => node.props?.['data-dsh-diff-filter'] !== undefined)[0]
+check('the filter box is there', historyFilter !== undefined)
+historyFilter.props.onChange({ target: { value: 'first round' } })
+tree = await rerender(viewElement())
+check('filtering narrows the commit list to what matches', JSON.stringify(commitRows().map(row => row.props['data-commit-short'])) === JSON.stringify(['bbbbbbb']), JSON.stringify(commitRows().map(row => row.props['data-commit-short'])))
+historyFilter.props.onChange({ target: { value: 'aaaaaaa' } })
+tree = await rerender(viewElement())
+check('a filter that matches no commit says so', textOf(tree).includes('list.emptyFiltered') || textOf(tree).includes('没有匹配'), textOf(tree))
+findAll(tree, node => node.props?.['data-dsh-diff-filter'] !== undefined)[0].props.onChange({ target: { value: '' } })
+tree = await rerender(viewElement())
 
 console.log('\nthe per-turn browser')
 const TurnsView = registrations[1].component
