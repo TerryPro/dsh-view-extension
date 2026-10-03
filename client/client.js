@@ -105,6 +105,11 @@ window.__ModuleLoader__.load({
 		/** Where the file tree's width lives, so a reader's layout survives a reload. */
 		var TREE_WIDTH_KEY = NAMESPACE + '.treeWidth';
 
+		/** The per-turn view's three seams, each remembered on its own. */
+		var TURNS_LIST_KEY = NAMESPACE + '.turnsListWidth';
+		var TURNS_SAID_KEY = NAMESPACE + '.turnsSaidShare';
+		var TURNS_FILES_KEY = NAMESPACE + '.turnsFilesWidth';
+
 		/** Where the two divider positions live, so a reader's layout survives a reload. */
 		var LEFT_WIDTH_KEY = NAMESPACE + '.leftWidth';
 		/** The share of the left column given to the commit list, as a percentage. */
@@ -316,6 +321,9 @@ window.__ModuleLoader__.load({
 				'layout.leftWidth': '调整左栏宽度',
 				'layout.leftSplit': '调整历史与文件的高度',
 				'layout.treeWidth': '调整文件树宽度',
+				'layout.turnList': '调整轮次列表宽度',
+				'layout.saidSplit': '调整问答与文件的高度',
+				'layout.turnFiles': '调整文件与对比的宽度',
 				'list.empty': '当前范围没有改动',
 				'list.emptyFiltered': '没有匹配的文件',
 				'list.loading': '正在读取改动…',
@@ -480,6 +488,9 @@ window.__ModuleLoader__.load({
 				'layout.leftWidth': 'Resize the left column',
 				'layout.leftSplit': 'Resize history against files',
 				'layout.treeWidth': 'Resize the file tree',
+				'layout.turnList': 'Resize the turn list',
+				'layout.saidSplit': 'Resize the question against the files',
+				'layout.turnFiles': 'Resize the file list against the comparison',
 				'list.emptyFiltered': 'No file matches the filter',
 				'list.loading': 'Reading changes…',
 				'diff.empty': 'Pick a file on the left to see its comparison',
@@ -593,7 +604,7 @@ window.__ModuleLoader__.load({
 			/* The per-turn browser: turns on the left, that turn's question, answer
 			 * and changed files stacked on the right. */
 			'.dshdv-tv{display:flex;flex:1 1 auto;min-height:0;min-width:0;background:var(--dsw-alias-bg-layer-1,#fff)}',
-			'.dshdv-tvList{display:flex;flex-direction:column;flex:0 0 196px;min-width:0;border-right:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.08))}',
+			'.dshdv-tvList{display:flex;flex-direction:column;flex:0 0 auto;width:var(--dshdv-tv-list-w,196px);min-width:0}',
 			'.dshdv-tvListBody{flex:1 1 auto;min-height:0;overflow-y:auto;padding:8px 0 8px 8px;margin-right:2px}',
 			'.dshdv-tvRow{display:flex;align-items:center;gap:6px;width:100%;border:0;background:transparent;text-align:left;font:inherit;font-size:12px;line-height:18px;color:var(--dsw-alias-label-primary,#1b1f24);padding:5px 8px;border-radius:var(--dsw-radius-md,12px);cursor:pointer}',
 			'.dshdv-tvRow:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}',
@@ -609,7 +620,7 @@ window.__ModuleLoader__.load({
 			 * than content-sized on purpose: the reader compares turns by the same
 			 * geometry every time, and a long answer scrolls inside its third instead
 			 * of pushing the file pane off the bottom of the tab. */
-			'.dshdv-tvSaid{flex:0 0 33.3333%;min-height:0;overflow-y:auto;padding:12px 16px;border-bottom:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.08))}',
+			'.dshdv-tvSaid{flex:0 0 var(--dshdv-tv-said,33.33%);min-height:0;overflow-y:auto;padding:12px 16px}',
 			'.dshdv-tvSaidBlock+.dshdv-tvSaidBlock{margin-top:14px}',
 			/* The question is the shell's own user bubble: right-aligned, on
 			 * `--dsw-specific-bubble`, at `--dsw-radius-xl`, sized by the body axis
@@ -661,11 +672,13 @@ window.__ModuleLoader__.load({
 			'.dshdv-tvNote{margin:6px 0 0;color:var(--dsw-alias-label-tertiary,#8b939e);font-size:11px}',
 			/* The lower two thirds: it takes every pixel the answer's third leaves, so
 			 * the two panes always add up to the column exactly. */
-			'.dshdv-tvFiles{display:flex;flex-direction:column;flex:1 1 66.6667%;min-height:0}',
+			/* What the question pane does not take belongs to the files: the share above is the
+			 * variable, so this side is simply the remainder. */
+			'.dshdv-tvFiles{display:flex;flex-direction:column;flex:1 1 auto;min-height:0}',
 			'.dshdv-tvFilesHead{display:flex;align-items:center;gap:8px;flex:none;height:32px;padding:0 12px;border-bottom:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.08))}',
 			'.dshdv-tvFilesHead .dshdv-tvLabel{margin:0}',
 			'.dshdv-tvFilesBody{display:flex;flex:1 1 auto;min-height:0;min-width:0}',
-			'.dshdv-tvFileList{display:flex;flex-direction:column;gap:2px;flex:0 0 190px;min-width:0;overflow-y:auto;padding:6px 0 6px 6px;border-right:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.08))}',
+			'.dshdv-tvFileList{display:flex;flex-direction:column;gap:2px;flex:0 0 auto;width:var(--dshdv-tv-files-w,190px);min-width:0;overflow-y:auto;padding:6px 0 6px 6px;border-right:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.08))}',
 			'.dshdv-tvFile{display:flex;align-items:center;gap:6px;width:100%;border:0;background:transparent;text-align:left;font:inherit;font-size:12px;line-height:18px;color:var(--dsw-alias-label-primary,#1b1f24);padding:5px 7px;border-radius:var(--dsw-radius-md,12px);cursor:pointer}',
 			'.dshdv-tvFile:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}',
 			'.dshdv-tvFile[aria-selected="true"]{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}',
@@ -2615,6 +2628,28 @@ window.__ModuleLoader__.load({
 			var controller = props.controller;
 			var sessionId = props.sessionId;
 			var t = props.t;
+			/* This view's three seams: the turn list's width, the split between the
+			 * question and the files, and the file list against the comparison. Each is
+			 * remembered on its own, and each reads the container it divides — which is
+			 * what keeps the percentage a percentage when the window changes size. */
+			var layoutState = React.useState(function () {
+				var remembered = function (key, fallback) {
+					var stored = Number(readPreference(key, ''));
+					return Number.isFinite(stored) && stored > 0 ? stored : fallback;
+				};
+				return {
+					listWidth: remembered(TURNS_LIST_KEY, 196),
+					saidShare: remembered(TURNS_SAID_KEY, 33.33),
+					filesWidth: remembered(TURNS_FILES_KEY, 190),
+					/** Assigned to `gripFor` below; the state object is created first. */
+					grip: function () { return null; },
+				};
+			});
+			var layout = layoutState[0];
+			var setLayout = layoutState[1];
+			var tvRootRef = React.useRef(null);
+			var tvMainRef = React.useRef(null);
+			var tvFilesRef = React.useRef(null);
 			var state = React.useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
 			var wrapState = React.useState(function () { return readPreference(WRAP_KEY, 'wrap') !== 'nowrap'; });
 			var wrap = wrapState[0];
@@ -2749,7 +2784,7 @@ window.__ModuleLoader__.load({
 			} else if (state.files.length === 0) {
 				filesBody = h('div', { className: 'dshdv-status' }, h('p', null, t('turns.noFiles')));
 			} else {
-				filesBody = h('div', { className: 'dshdv-tvFilesBody' },
+				filesBody = h('div', { className: 'dshdv-tvFilesBody', ref: tvFilesRef },
 					h('div', { className: 'dshdv-tvFileList', role: 'listbox', 'aria-label': t('turns.files'), 'data-dsh-diff-turn-files': '' },
 						state.files.map(function (file) {
 							var parts = splitPath(file.display || file.path);
@@ -2775,6 +2810,7 @@ window.__ModuleLoader__.load({
 									file.added > 0 ? h('span', { className: 'dshdv-add' }, '+' + file.added) : null,
 									file.deleted > 0 ? h('span', { className: 'dshdv-del' }, '−' + file.deleted) : null));
 						})),
+					layout.grip('files', t('layout.turnFiles')),
 					h('div', { className: 'dshdv-tvDiff' }, h(DiffBody, {
 						state: state,
 						t: t,
@@ -2792,12 +2828,109 @@ window.__ModuleLoader__.load({
 					state.deleted > 0 ? h('span', { className: 'dshdv-del' }, '−' + state.deleted) : null),
 				selectedRow !== undefined && selectedRow.open === true ? h('span', { className: 'dshdv-tvTag' }, t('turns.open')) : null);
 
-			return h('div', { className: 'dshdv-root', 'data-dsh-diff-turns': '', 'data-conversation-composer-overlay': '' },
-				h('div', { className: 'dshdv-tv' },
+			/* The three seams of this view, as one factory rather than three hand-written
+			 * dividers: the gesture is already a function (`dividerDrag`), and all that
+			 * differs per seam is the variable it writes and how it is bounded. Widths are
+			 * pixels; the top/bottom share is a percentage, so a window resize cannot
+			 * break the layout. */
+			/* The three seams of this view, as one factory rather than three hand-written
+			 * dividers: the gesture is already a function (dividerDrag), and all that
+			 * differs per seam is the variable it writes and how it is bounded. Widths are
+			 * pixels; the top/bottom share is a percentage, so a window resize cannot
+			 * break the layout. */
+			var gripFor = function (kind, label) {
+				var spec = {
+					list: { axis: 'x', cssVar: '--dshdv-tv-list-w', key: TURNS_LIST_KEY, min: 140, max: 460, percent: false, container: function () { return tvRootRef.current; }, value: function () { return layout.listWidth; } },
+					said: { axis: 'y', cssVar: '--dshdv-tv-said', key: TURNS_SAID_KEY, min: 15, max: 85, percent: true, container: function () { return tvMainRef.current; }, value: function () { return layout.saidShare; } },
+					files: { axis: 'x', cssVar: '--dshdv-tv-files-w', key: TURNS_FILES_KEY, min: 120, max: 420, percent: false, container: function () { return tvFilesRef.current; }, value: function () { return layout.filesWidth; } },
+				}[kind];
+				var room = function () {
+					var node = spec.container();
+					if (node === null || node === undefined) return 0;
+					var size = spec.axis === 'x' ? node.clientWidth : node.clientHeight;
+					return typeof size === 'number' ? size : 0;
+				};
+				var pixels = function () {
+					var size = room();
+					return spec.percent ? (spec.value() / 100) * size : spec.value();
+				};
+				var clamp = function (value) {
+					var size = room();
+					if (spec.percent) {
+						if (!(size > 0)) return value;
+						return Math.max((size * spec.min) / 100, Math.min((size * spec.max) / 100, value));
+					}
+					return Math.max(spec.min, Math.min(size > 0 ? Math.min(spec.max, size * 0.7) : spec.max, value));
+				};
+				var share = function (value) {
+					var size = room();
+					return spec.percent && size > 0 ? Math.max(spec.min, Math.min(spec.max, (value / size) * 100)) : value;
+				};
+				var commit = function (value) {
+					var settled = share(value);
+					var next = Object.assign({}, layout);
+					if (spec.percent) next.saidShare = settled;
+					else if (kind === 'list') next.listWidth = settled;
+					else next.filesWidth = settled;
+					setLayout(next);
+					writePreference(spec.key, spec.percent ? settled.toFixed(2) : String(Math.round(settled)));
+				};
+				var nudge = function (event) {
+					var back = spec.axis === 'x' ? 'ArrowLeft' : 'ArrowUp';
+					var forward = spec.axis === 'x' ? 'ArrowRight' : 'ArrowDown';
+					var step = event.key === back ? -1 : event.key === forward ? 1 : 0;
+					if (step === 0) return;
+					event.preventDefault();
+					var size = room();
+					var delta = spec.percent ? (size > 0 ? (size * 4) / 100 : 4) : 16;
+					commit(clamp(pixels() + step * delta));
+				};
+				return h('div', {
+					className: 'dshdv-grip dshdv-grip' + (spec.axis === 'x' ? 'V' : 'H'),
+					role: 'separator',
+					'aria-orientation': spec.axis === 'x' ? 'vertical' : 'horizontal',
+					'aria-label': label,
+					'data-dsh-diff-tv-grip': kind,
+					tabIndex: 0,
+					'aria-valuenow': Math.round(spec.value()),
+					onPointerDown: dividerDrag({
+						axis: spec.axis,
+						container: spec.container,
+						startValue: pixels,
+						clamp: clamp,
+						apply: function (node, value) {
+							if (!spec.percent) {
+								node.style.setProperty(spec.cssVar, String(Math.round(value)) + 'px');
+								return;
+							}
+							var size = node.clientHeight;
+							if (size > 0) node.style.setProperty(spec.cssVar, ((value / size) * 100).toFixed(2) + '%');
+						},
+						onCommit: commit,
+					}),
+					onKeyDown: nudge,
+				});
+			};
+
+			layout.grip = gripFor;
+
+			return h('div', {
+				className: 'dshdv-root',
+				'data-dsh-diff-turns': '',
+				'data-conversation-composer-overlay': '',
+				style: {
+					'--dshdv-tv-list-w': String(Math.round(layout.listWidth)) + 'px',
+					'--dshdv-tv-said': layout.saidShare.toFixed(2) + '%',
+					'--dshdv-tv-files-w': String(Math.round(layout.filesWidth)) + 'px',
+				},
+			},
+				h('div', { className: 'dshdv-tv', ref: tvRootRef },
 					h('div', { className: 'dshdv-tvList' },
 						h('div', { className: 'dshdv-tvListBody', role: 'listbox', 'aria-label': t('turns.label.turn') }, listBody)),
-					h('div', { className: 'dshdv-tvMain' },
+					layout.grip('list', t('layout.turnList')),
+					h('div', { className: 'dshdv-tvMain', ref: tvMainRef },
 						said,
+						layout.grip('said', t('layout.saidSplit')),
 						h('div', { className: 'dshdv-tvFiles' }, head, filesBody))));
 		}
 

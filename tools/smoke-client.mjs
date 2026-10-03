@@ -1140,12 +1140,16 @@ const flexBasisOf = (rule) => {
   return Number.parseFloat(basis) || 0
 }
 const saidRule = /^\.dshdv-tvSaid\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
-const filesRule = /^\.dshdv-tvFiles\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
-const saidBasis = flexBasisOf(saidRule)
-const filesBasis = flexBasisOf(filesRule)
-check('the answer pane takes a third of the column', Math.abs(saidBasis - 100 / 3) < 0.01, `${saidBasis}% — ${saidRule}`)
-check('the files pane takes two thirds of the column', Math.abs(filesBasis - 200 / 3) < 0.01, `${filesBasis}% — ${filesRule}`)
-check('the two panes add up to the column', Math.abs(saidBasis + filesBasis - 100) < 0.01, `${saidBasis} + ${filesBasis}`)
+/* The split is the reader's now: the question pane takes the share they set (a
+ * percentage, so a window resize keeps it) and the files pane takes what is left. */
+const saidRuleNow = /^\.dshdv-tvSaid\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
+check('the question pane takes the share the reader set', saidRuleNow.includes('flex:0 0 var(--dshdv-tv-said'), saidRuleNow)
+const filesRuleNow = /^\.dshdv-tvFiles\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
+check('and the files pane takes what is left', filesRuleNow.includes('flex:1 1 auto'), filesRuleNow)
+const tvListRule = /^\.dshdv-tvList\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
+check('the turn list width is a variable too', tvListRule.includes('width:var(--dshdv-tv-list-w'), tvListRule)
+const tvFileListRule = /^\.dshdv-tvFileList\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
+check('and so is the file list', tvFileListRule.includes('width:var(--dshdv-tv-files-w'), tvFileListRule)
 check('neither pane is content-sized any more', saidRule.includes('max-height') === false && saidRule.includes('flex:0 0'), saidRule)
 check('the bundle asks the page for the shell primitives', primitivesAsked === true, 'the primitives module was required at load')
 
@@ -2294,6 +2298,44 @@ check('hovering it reveals the line', gripReveal.includes('background:var('), gr
 const gripDrag = /^\.dshdv-grip\[data-dragging="true"\]::after\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
 check('and a running drag keeps it visible', gripDrag.includes('background:var('), gripDrag)
 check('the handle still occupies its lane', /^\.dshdv-gripV\{([^}]*)\}/mu.exec(styles)?.[1]?.includes('cursor:col-resize') === true, /^\.dshdv-gripV\{([^}]*)\}/mu.exec(styles)?.[1])
+console.log(''); console.log('the seam layout of the per-turn view')
+console.log('the seam layout of the per-turn view')
+/* Same gesture as every other divider in this plugin, through one factory: three
+ * seams, three variables, each remembered on its own. */
+unmount.disposeControllers = true
+unmount()
+let tvTree = await render(React.createElement(TurnsView, Object.assign({}, viewProps, turnFace)))
+await settle(4)
+tvTree = await rerender(React.createElement(TurnsView, Object.assign({}, viewProps, turnFace)))
+const tvGrips = () => findAll(tvTree, node => node.props?.['data-dsh-diff-tv-grip'] !== undefined)
+const tvRootNode = () => findAll(tvTree, node => node.props?.['data-dsh-diff-turns'] !== undefined)[0]
+/* Two always, the third when the selected turn has files to divide: a seam with
+ * nothing on either side of it is not rendered, which is the honest behaviour. */
+check('the view exposes its seams', tvGrips().length >= 2, JSON.stringify(tvGrips().map(node => node.props['data-dsh-diff-tv-grip'])))
+check('named for what they divide', JSON.stringify(tvGrips().map(node => node.props['data-dsh-diff-tv-grip']).slice(0, 2)) === JSON.stringify(['list', 'said']), JSON.stringify(tvGrips().map(node => node.props['data-dsh-diff-tv-grip'])))
+check('the list seam is vertical and the question seam horizontal', JSON.stringify(tvGrips().map(node => node.props['aria-orientation']).slice(0, 2)) === JSON.stringify(['vertical', 'horizontal']), JSON.stringify(tvGrips().map(node => node.props['aria-orientation'])))
+check('each is a separator a keyboard can reach', tvGrips().every(node => node.props.role === 'separator' && node.props.tabIndex === 0), JSON.stringify(tvGrips().map(node => node.props.role)))
+check('every size starts from a variable on the root', ['--dshdv-tv-list-w', '--dshdv-tv-said', '--dshdv-tv-files-w'].every(name => tvRootNode()?.props?.style?.[name] !== undefined), JSON.stringify(tvRootNode()?.props?.style))
+
+/* Dragging one writes its variable on the container it divides, and persists on release. */
+storage.delete('dsh-diff-view.turnsListWidth')
+const tvListGrip = tvGrips().find(node => node.props['data-dsh-diff-tv-grip'] === 'list')
+/* The clamp and the arrow-key path are asserted on the three dividers this plugin
+ * already had; what matters here is that this view's seams are wired to the same
+ * gesture and persist like the others. */
+findAll(tvTree, node => node.props?.['data-dsh-diff-tv-grip'] === 'list')[0].props.onKeyDown({ key: 'ArrowLeft', preventDefault() {} })
+check('an arrow key moves this seam too', Number(storage.get('dsh-diff-view.turnsListWidth')) < 256, String(storage.get('dsh-diff-view.turnsListWidth')))
+storage.delete('dsh-diff-view.turnsListWidth')
+const tvWrites = []
+const tvRow = findAll(tvTree, node => node.props?.className === 'dshdv-tv')[0]
+tvRow.clientWidth = 1200
+const innerSet = tvRow.style.setProperty.bind(tvRow.style)
+tvRow.style.setProperty = (name, value) => { tvWrites.push(`${name}=${value}`); innerSet(name, value) }
+tvListGrip.props.onPointerDown({ button: 0, clientX: 300, pointerId: 21, preventDefault() {}, currentTarget: { setAttribute() {}, setPointerCapture() {} } })
+;[...windowListeners.get('pointermove')].slice(-1)[0]({ clientX: 360 })
+check('dragging the turn-list seam writes its variable', tvWrites.some(entry => entry.startsWith('--dshdv-tv-list-w=')), JSON.stringify(tvWrites))
+;[...windowListeners.get('pointerup')].slice(-1)[0]()
+check('and releasing remembers it', Number(storage.get('dsh-diff-view.turnsListWidth')) === 256, String(storage.get('dsh-diff-view.turnsListWidth')))
 console.log('\nunmount')
 unmount()
 const cleanups = []
