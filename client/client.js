@@ -703,7 +703,7 @@ window.__ModuleLoader__.load({
 			'.dshdv-fvBadge{flex:none;color:var(--dsw-alias-state-warn-primary,#c08a20);font-size:11px}',
 			'.dshdv-fvNote{margin:4px 10px;color:var(--dsw-alias-label-tertiary,#8b939e);font-size:11px;line-height:1.5}',
 			'.dshdv-fvError{margin:4px 10px;color:var(--dsw-alias-state-error-primary,#c0392b);font-size:11px;line-height:1.5}',
-			'.dshdv-fvMain{display:flex;flex-direction:column;flex:1 1 auto;min-width:0;min-height:0}',
+			'.dshdv-fvMain{display:flex;flex-direction:column;flex:1 1 auto;min-width:0;min-height:0;background:var(--dsw-alias-bg-layer-1,#fafbfc)}',
 			/* The tab strip: the shell's own file-tab vocabulary — 34px tall, hairline
 			 * separators, the selected tab filled with the native interactive token
 			 * (`ui-sidebar-*` uses the same), and a horizontally scrolling list so any
@@ -782,9 +782,9 @@ window.__ModuleLoader__.load({
 			'.dshdv-grip{flex:0 0 5px;align-self:stretch;border:0;padding:0;background:var(--dsw-alias-bg-layer-1,#fafbfc);position:relative;z-index:4}',
 			'.dshdv-grip::after{content:"";position:absolute;background:var(--dsw-alias-border-l3,rgba(0,0,0,.08));transition:background .12s ease}',
 			'.dshdv-gripV{cursor:col-resize}',
-			'.dshdv-gripV::after{top:0;bottom:0;left:2px;width:1px}',
+			'.dshdv-gripV::after{top:0;bottom:0;right:0;width:1px}',
 			'.dshdv-gripH{cursor:row-resize}',
-			'.dshdv-gripH::after{left:0;right:0;top:2px;height:1px}',
+			'.dshdv-gripH::after{left:0;right:0;bottom:0;height:1px}',
 			'.dshdv-grip:hover::after,.dshdv-grip:focus-visible::after{background:var(--dsw-alias-state-business-primary,#3b6cf6)}',
 			'.dshdv-grip:focus-visible{outline:none}',
 			'.dshdv-grip[data-dragging="true"]::after{background:var(--dsw-alias-state-business-primary,#3b6cf6)}',

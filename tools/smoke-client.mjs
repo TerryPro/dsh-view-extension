@@ -2264,6 +2264,15 @@ for (const selector of ['.dshdv-gitLeft', '.dshdv-gitHistory', '.dshdv-gitFiles'
  * surface underneath as a white stripe between the tree and the editor. */
 const gripBase = /^\.dshdv-grip::after\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
 check('a line marks the seam at rest', gripBase.includes('background:var(--dsw-alias-border-l3'), gripBase)
+/* The hairline sits flush against the pane it divides: a line in the MIDDLE of the
+ * lane leaves a sliver on its far side, and an unpainted sliver is a white stripe
+ * between the line and the editor. */
+const gripV = /^\.dshdv-gripV::after\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
+check('the vertical hairline is flush with the pane it divides', gripV.includes('right:0') && !gripV.includes('left:'), gripV)
+const gripH = /^\.dshdv-gripH::after\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
+check('and so is the horizontal one', gripH.includes('bottom:0') && !gripH.includes('top:'), gripH)
+const fvMainBg = /^\.dshdv-fvMain\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
+check('the editor column is painted too, so no link in the chain is bare', fvMainBg.includes('background:var(--dsw-alias-bg-layer-1'), fvMainBg)
 const gripLane = /^\.dshdv-grip\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
 check('the handle lane is painted, not left transparent', gripLane.includes('background:var(--dsw-alias-bg-layer-1'), gripLane)
 const fvTreeBg = /^\.dshdv-fvTree\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''

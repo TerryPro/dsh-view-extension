@@ -201,6 +201,13 @@ if (locales.has(localeKey(locale))) throw new Error(`locale namespace "${ns}" al
 ```
 
 `CodeBlock`、`FileDiff`、消息里的代码全用它。现在编辑器正文、行号槽、面板也都用**同一条简写**（`.cm-scroller` 与 `.cm-content` 都要设：CodeMirror 自带主题在 content 上声明了 monospace 与行高，不覆盖就会赢）。
+#### 白缝的第二处：线右侧的余量
+
+第一处白缝是**抓取带没涂色**；第二处是**线所在的位置**：那条 1px 的线原本放在 5px 带子的中间（`left:2px`），于是它**右边还剩 2px** —— 只要那 2px 没被涂色，就是"线右边又一条白缝"（截图里正是如此）。
+
+现在线**贴住带子的右缘**（`right:0` / 水平方向 `bottom:0`）：线左边全部是"树的一部分"，线右边直接是编辑区，**中间不存在可露白的余量**。同时编辑区那一列（`.dshdv-fvMain`）也补上了底色 —— 链条上任何一环裸露，都会变成一条白缝。
+
+护栏因此是四条成对断言：**有线** + **抓取带涂色** + **线贴边** + **编辑区列也涂色**。
 #### 线保留，白缝去掉
 
 上一版把静止的线设成透明，结果那 5px 的抓取带**没有任何背景**，露出了底下的白底 —— 于是"没有线"变成"多了一条白缝"。这是典型的**减法没做干净**：拿掉一条线的同时，忘了它底下还承载着一块面。
@@ -547,7 +554,7 @@ dsh plugin add link:F:/deepseek_harness_workspace/dsh-diff-view
 ```bash
 node tools/test-host.mjs      # 191 项
 node tools/test-editor-chunk.mjs  # 33 项（CodeMirror 分块产物：注册、导出面、语法映射、缩进推断）：解析器对真实 git 输出、路由行为、会话折叠与兜底、围栏
-node tools/smoke-client.mjs   # 339 项（兜底编辑器）：契约、注册、渲染、交互、失败态
+node tools/smoke-client.mjs   # 342 项（兜底编辑器）：契约、注册、渲染、交互、失败态
 npm test                      # 两个都跑
 ```
 
