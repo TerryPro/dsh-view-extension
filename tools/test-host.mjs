@@ -437,7 +437,7 @@ async function main() {
   ok(sessionByPath['src/keep.txt'] !== undefined && sessionByPath['src/twice.txt'] !== undefined, 'the session listing folds one entry per recorded path', JSON.stringify(sessionPaths))
   ok(sessionListing.body?.files?.every(file => Array.isArray(file.changedTurns)), 'each session entry carries the turns that changed it')
   ok(sessionListing.body?.added === 5 && sessionListing.body?.deleted === 4, 'the session totals add up over each file\'s newest turn', `${sessionListing.body?.added}/${sessionListing.body?.deleted}`)
-  ok(JSON.stringify(sessionListing.body?.turns) === JSON.stringify([2, 1]), 'the listing names its turns, newest first', JSON.stringify(sessionListing.body?.turns))
+  ok(JSON.stringify(sessionListing.body?.turns) === JSON.stringify([1, 2]), 'the listing names its turns, oldest first', JSON.stringify(sessionListing.body?.turns))
 
   // -- per-turn coordinates -------------------------------------------------
   const keepEntry = sessionByPath['src/keep.txt']
@@ -492,7 +492,7 @@ async function main() {
   console.log('# turns')
   const turnList = await callRoute(turnsRoute, '/api/dsh-diff/turns?sessionId=fixture')
   ok(turnList.status === 200 && Array.isArray(turnList.body?.turns), 'the turn list answers 200', JSON.stringify(turnList.body?.error))
-  ok(JSON.stringify(turnList.body?.turns?.map(row => row.turn)) === JSON.stringify([3, 2, 1]), 'turns are listed newest first', JSON.stringify(turnList.body?.turns?.map(row => row.turn)))
+  ok(JSON.stringify(turnList.body?.turns?.map(row => row.turn)) === JSON.stringify([1, 2, 3]), 'turns are listed oldest first', JSON.stringify(turnList.body?.turns?.map(row => row.turn)))
   const byTurn = Object.fromEntries((turnList.body?.turns ?? []).map(row => [row.turn, row]))
   ok(byTurn[1]?.prompt?.text === '第一轮：把 diff 视图挂到会话区', 'a turn carries the prompt that opened it', JSON.stringify(byTurn[1]?.prompt))
   ok(byTurn[1]?.prompt?.human === true, 'a typed prompt is marked as a human one', JSON.stringify(byTurn[1]?.prompt))

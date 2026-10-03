@@ -371,6 +371,31 @@ window.__ModuleLoader__.load({
 			'.dshdv-tvMarkdown{min-width:0;color:var(--dsw-alias-label-primary,#1b1f24)}',
 			'.dshdv-tvMarkdown>*:first-child{margin-top:0}',
 			'.dshdv-tvMarkdown>*:last-child{margin-bottom:0}',
+			/* The built-in renderer's blocks, used only where the shell exposes no
+			 * Markdown primitive. Same tokens as the shell's own markdown sheet
+			 * (`MarkdownText.module.css`: `--dsw-font-markdown-base`, `-h1..h4`,
+			 * `--dsw-alias-markdown-inline-code` at `0.875em`, list and quote rules),
+			 * so the pane does not change rhythm with the renderer. */
+			'.dshdv-md{min-width:0;overflow-wrap:anywhere;font:var(--dsw-font-markdown-base,14px/22px var(--dsw-font-family,sans-serif));color:var(--dsw-alias-label-primary,#1b1f24)}',
+			'.dshdv-mdP{margin:16px 0;white-space:pre-wrap}',
+			'.dshdv-mdP:first-child{margin-top:0}',
+			'.dshdv-mdP:last-child{margin-bottom:0}',
+			'.dshdv-mdH{margin:32px 0 16px;font-weight:700}',
+			'.dshdv-mdH[data-level="1"]{font:var(--dsw-font-markdown-h1,700 21px/30px var(--dsw-font-family,sans-serif))}',
+			'.dshdv-mdH[data-level="2"]{font:var(--dsw-font-markdown-h2,700 19px/28px var(--dsw-font-family,sans-serif))}',
+			'.dshdv-mdH[data-level="3"]{font:var(--dsw-font-markdown-h3,700 18px/26px var(--dsw-font-family,sans-serif))}',
+			'.dshdv-mdH[data-level="4"]{font:var(--dsw-font-markdown-h4,700 16px/24px var(--dsw-font-family,sans-serif));margin:16px 0}',
+			'.dshdv-mdH[data-level="5"],.dshdv-mdH[data-level="6"]{font:var(--dsw-font-markdown-base-strong,600 14px/22px var(--dsw-font-family,sans-serif));margin:16px 0}',
+			'.dshdv-mdH:first-child{margin-top:0}',
+			'.dshdv-mdList{margin:16px 0;padding-left:24px}',
+			'.dshdv-mdList li{margin:4px 0}',
+			'.dshdv-mdQuote{margin:16px 0;padding-left:16px;border-left:2px solid var(--dsw-alias-label-caption,#9aa3ae);color:var(--dsw-alias-label-secondary,#5b636e);white-space:pre-wrap}',
+			'.dshdv-mdRule{margin:24px 0;border:0;border-top:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.12))}',
+			'.dshdv-md strong{font-weight:600}',
+			'.dshdv-mdCode{padding:1px 4px;font:var(--dsw-font-markdown-code,12px/19px var(--ds-font-family-code,monospace));font-family:var(--ds-font-family-code,monospace);font-size:.875em;background-color:var(--dsw-alias-markdown-inline-code,rgba(0,0,0,.05));border:0.5px solid var(--dsw-alias-border-l1,rgba(0,0,0,.04));border-radius:var(--dsw-radius-xs,4px)}',
+			'.dshdv-mdFence{margin:16px 0}',
+			'.dshdv-mdLink{color:var(--dsw-alias-link,#3b6cf6);text-decoration:none}',
+			'.dshdv-mdLink:hover{text-decoration:underline}',
 			'.dshdv-tvEmpty{margin:0;color:var(--dsw-alias-label-tertiary,#8b939e);font-size:var(--dsh-content-font-size-secondary,13px)}',
 			'.dshdv-tvNote{margin:6px 0 0;color:var(--dsw-alias-label-tertiary,#8b939e);font-size:11px}',
 			'.dshdv-tvFiles{display:flex;flex-direction:column;flex:1 1 auto;min-height:0}',
@@ -1362,7 +1387,11 @@ window.__ModuleLoader__.load({
 					}
 					var rows = Array.isArray(result.value.turns) ? result.value.turns : [];
 					var keep = state.selected !== null && rows.some(function (row) { return row.turn === state.selected; });
-					var selected = keep ? state.selected : (rows.length > 0 ? rows[0].turn : null);
+					/* The list reads oldest first, so "nothing chosen yet" means the
+					 * LATEST turn — a reader opening the tab wants the turn that just
+					 * happened, and the ones before it are above. */
+					var newest = rows.length > 0 ? rows[rows.length - 1].turn : null;
+					var selected = keep ? state.selected : newest;
 					patch({ phase: 'ready', error: null, turns: rows });
 					if (selected === null) {
 						if (state.selected !== null) patch(emptyTurn());
@@ -1499,24 +1528,179 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * The turn's answer, rendered by the shell's own Markdown renderer.
+		 * The turn's answer, rendered as Markdown.
 		 *
-		 * Falls back to pre-wrapped text only when the page exposes no primitives:
-		 * Markdown is what an answer IS, and a plugin's own re-implementation would
-		 * drift from the shell's typography, fences and footnotes within a release.
+		 * The shell's own `MarkdownText` is the right renderer and is used whenever
+		 * the page exposes it — same typography, same fences, same footnotes, same
+		 * math. An answer must not degrade to raw Markdown SOURCE when it is absent,
+		 * though, so {@link plainMarkdown} takes over: a smaller renderer covering
+		 * what an answer actually contains (headings, fences, lists, quotes, rules,
+		 * and inline emphasis/code/links).
+		 *
+		 * There is no error boundary around the shell's renderer on purpose: it is
+		 * the same component the chat view draws every assistant message with, so a
+		 * page where it throws is a page whose chat is already broken — a second
+		 * renderer would not be the fix.
 		 */
 		function answerBlock(said, emptyCopy, truncCopy, format, labels, label) {
 			if (said === null || said === undefined) {
 				return h('div', { className: 'dshdv-tvSaidBlock', 'data-said': 'answer', role: 'group', 'aria-label': label },
 					h('p', { className: 'dshdv-tvEmpty' }, emptyCopy));
 			}
-			var body = MarkdownText !== null
-				? h('div', { className: 'dshdv-tvMarkdown' }, h(MarkdownText, { text: said.text, labels: labels }))
-				: h('p', { className: 'dshdv-tvText' }, said.text);
+			var body = h('div', { className: 'dshdv-tvMarkdown' },
+				MarkdownText !== null
+					? h(MarkdownText, { text: said.text, labels: labels })
+					: plainMarkdown(said.text));
 			return h('div', { className: 'dshdv-tvSaidBlock', 'data-said': 'answer', role: 'group', 'aria-label': label }, body,
 				said.truncated === true
 					? h('p', { className: 'dshdv-tvNote' }, format(truncCopy, { count: String(said.text.length) }))
 					: null);
+		}
+
+		/** URL schemes an answer's links may use, mirroring the shell's own allowlist. */
+		var SAFE_SCHEME = /^(?:https?:|mailto:)/iu;
+
+		/**
+		 * Render one line's inline Markdown as React children.
+		 *
+		 * Deliberately small: emphasis, inline code and links, which is what an
+		 * answer's prose actually uses. Text outside those runs is passed through
+		 * verbatim, so anything unrecognized stays readable instead of being eaten.
+		 *
+		 * @param line - one line of Markdown.
+		 * @returns the children for a block element.
+		 */
+		function inlineMarkdown(line) {
+			var out = [];
+			var pattern = /(`[^`]+`)|(\*\*[^*]+\*\*)|(__[^_]+__)|(\*[^*\n]+\*)|(_[^_\n]+_)|(\[[^\]]+\]\([^)\s]+\))/gu;
+			var at = 0;
+			var match;
+			var key = 0;
+			while ((match = pattern.exec(line)) !== null) {
+				if (match.index > at) out.push(line.slice(at, match.index));
+				var token = match[0];
+				key += 1;
+				if (token.charAt(0) === '`') {
+					out.push(h('code', { key: 'c' + key, className: 'dshdv-mdCode' }, token.slice(1, -1)));
+				} else if (token.startsWith('**') || token.startsWith('__')) {
+					out.push(h('strong', { key: 'b' + key }, token.slice(2, -2)));
+				} else if (token.charAt(0) === '[') {
+					var split = /^\[([^\]]+)\]\(([^)\s]+)\)$/u.exec(token);
+					var target = split === null ? '' : split[2];
+					var safe = SAFE_SCHEME.test(target) ? target : null;
+					out.push(safe === null
+						? h('span', { key: 'l' + key }, split === null ? token : split[1])
+						: h('a', { key: 'l' + key, className: 'dshdv-mdLink', href: safe, target: '_blank', rel: 'noreferrer noopener' }, split[1]));
+				} else {
+					out.push(h('em', { key: 'i' + key }, token.slice(1, -1)));
+				}
+				at = match.index + token.length;
+			}
+			if (at < line.length) out.push(line.slice(at));
+			return out;
+		}
+
+		/**
+		 * A Markdown answer, rendered without the shell's renderer.
+		 *
+		 * Block level: fenced code (drawn with the same card vocabulary the diff
+		 * uses), ATX headings, unordered and ordered lists, blockquotes and rules.
+		 * Everything else becomes a paragraph, and the whole document keeps its
+		 * source line breaks, so an unparsed block reads as written.
+		 *
+		 * @param text - the Markdown source.
+		 * @returns a React element.
+		 */
+		function plainMarkdown(text) {
+			var lines = String(text === null || text === undefined ? '' : text).split('\n');
+			var blocks = [];
+			var index = 0;
+			var key = 0;
+			var pending = [];
+			var flush = function () {
+				if (pending.length === 0) return;
+				key += 1;
+				blocks.push(h('p', { key: 'p' + key, className: 'dshdv-mdP' }, inlineMarkdown(pending.join('\n'))));
+				pending = [];
+			};
+			while (index < lines.length) {
+				var line = lines[index];
+				var fence = /^\s*(?:```|~~~)(.*)$/u.exec(line);
+				if (fence !== null) {
+					flush();
+					var code = [];
+					index += 1;
+					while (index < lines.length && /^\s*(?:```|~~~)\s*$/u.test(lines[index]) === false) {
+						code.push(lines[index]);
+						index += 1;
+					}
+					index += 1;
+					key += 1;
+					blocks.push(h('div', { key: 'code' + key, className: 'dshdv-code dshdv-mdFence', 'data-code-wrap': 'true' },
+						code.map(function (row, rowIndex) {
+							return h('div', { key: rowIndex, className: 'dshdv-line', 'data-kind': 'context' }, h('span', { className: 'dshdv-text' }, row));
+						})));
+					continue;
+				}
+				var heading = /^(#{1,6})\s+(.*)$/u.exec(line);
+				if (heading !== null) {
+					flush();
+					key += 1;
+					blocks.push(h('div', { key: 'h' + key, className: 'dshdv-mdH', 'data-level': String(heading[1].length) }, inlineMarkdown(heading[2])));
+					index += 1;
+					continue;
+				}
+				if (/^\s*(?:---|\*\*\*|___)\s*$/u.test(line)) {
+					flush();
+					key += 1;
+					blocks.push(h('hr', { key: 'hr' + key, className: 'dshdv-mdRule' }));
+					index += 1;
+					continue;
+				}
+				var bullet = /^\s*[-*+]\s+(.*)$/u.exec(line);
+				var numbered = /^\s*\d+[.)]\s+(.*)$/u.exec(line);
+				if (bullet !== null || numbered !== null) {
+					flush();
+					var items = [];
+					var ordered = numbered !== null;
+					while (index < lines.length) {
+						var nextBullet = /^\s*[-*+]\s+(.*)$/u.exec(lines[index]);
+						var nextNumbered = /^\s*\d+[.)]\s+(.*)$/u.exec(lines[index]);
+						var item = ordered ? nextNumbered : nextBullet;
+						if (item === null) break;
+						items.push(h('li', { key: items.length }, inlineMarkdown(item[1])));
+						index += 1;
+					}
+					key += 1;
+					blocks.push(ordered
+						? h('ol', { key: 'ol' + key, className: 'dshdv-mdList' }, items)
+						: h('ul', { key: 'ul' + key, className: 'dshdv-mdList' }, items));
+					continue;
+				}
+				var quote = /^\s*>\s?(.*)$/u.exec(line);
+				if (quote !== null) {
+					flush();
+					var quoted = [];
+					while (index < lines.length) {
+						var nextQuote = /^\s*>\s?(.*)$/u.exec(lines[index]);
+						if (nextQuote === null) break;
+						quoted.push(nextQuote[1]);
+						index += 1;
+					}
+					key += 1;
+					blocks.push(h('blockquote', { key: 'q' + key, className: 'dshdv-mdQuote' }, inlineMarkdown(quoted.join('\n'))));
+					continue;
+				}
+				if (/^\s*$/u.test(line)) {
+					flush();
+					index += 1;
+					continue;
+				}
+				pending.push(line);
+				index += 1;
+			}
+			flush();
+			return h('div', { className: 'dshdv-md', 'data-markdown': 'builtin' }, blocks);
 		}
 
 		/** The per-turn browser: turns on the left, that turn's work on the right. */

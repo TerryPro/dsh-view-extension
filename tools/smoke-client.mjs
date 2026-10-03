@@ -675,7 +675,7 @@ const SESSION_LIST = {
   repo: null,
   added: 5,
   deleted: 1,
-  turns: [2, 1],
+  turns: [1, 2],
   turn: 2,
   files: [
     {
@@ -1004,19 +1004,21 @@ const staleFilter = findAll(tree, node => node.type === 'input' && node.props !=
 staleFilter.props.onChange({ target: { value: '' } })
 tree = await rerender(viewElement())
 check('the turn strip is present in the session scope', findAll(tree, node => node.props !== undefined && node.props['data-dsh-diff-turns'] !== undefined).length === 1)
+/** One chip, found by the turn it names — the strip's order is asserted separately. */
+const chipFor = (turn) => turnChips().find(chip => chip.props['data-turn'] === String(turn))
 const chips = turnChips()
 check('one chip per turn plus the aggregate', chips.length === 3, JSON.stringify(chips.map(chip => chip.props['data-turn'])))
-check('chips read newest turn first', JSON.stringify(chips.map(chip => chip.props['data-turn'])) === JSON.stringify(['all', '2', '1']), JSON.stringify(chips.map(chip => chip.props['data-turn'])))
+check('the first turn is at the top of the strip', JSON.stringify(chips.map(chip => chip.props['data-turn'])) === JSON.stringify(['all', '1', '2']), JSON.stringify(chips.map(chip => chip.props['data-turn'])))
 check('the aggregate chip counts every file', textOf(chips[0]).includes('4'), textOf(chips[0]))
-check('a turn chip counts only its own files', textOf(chips[1]).includes('3') && textOf(chips[2]).includes('2'), `${textOf(chips[1])} / ${textOf(chips[2])}`)
+check('a turn chip counts only its own files', textOf(chipFor(1)).includes('2') && textOf(chipFor(2)).includes('3'), `${textOf(chipFor(1))} / ${textOf(chipFor(2))}`)
 check('the aggregate chip starts pressed', chips[0].props['aria-pressed'] === true)
 check('the aggregate view lists every file', rowPaths().length === 4, JSON.stringify(rowPaths()))
 
 // Turn 1: the two files it touched, and the comparison read at TURN 1's coordinate.
-chips[2].props.onClick()
+chipFor(1).props.onClick()
 await settle(4)
 tree = await rerender(viewElement())
-check('choosing a turn presses its chip', turnChips()[2].props['aria-pressed'] === true, JSON.stringify(turnChips().map(chip => chip.props['aria-pressed'])))
+check('choosing a turn presses its chip', chipFor(1).props['aria-pressed'] === true, JSON.stringify(turnChips().map(chip => chip.props['aria-pressed'])))
 check('choosing a turn narrows the list to its files', JSON.stringify(rowPaths().sort()) === JSON.stringify(['src/early.txt', 'src/keep.txt']), JSON.stringify(rowPaths()))
 check('the first file of that turn becomes selected', lastSessionAt() === '1:4:0', String(lastSessionAt()))
 /* This pair of assertions is also the regression guard for a memo comparator
@@ -1030,7 +1032,7 @@ const firstRowCounts = textOf(findAll(tree, node => node.props !== undefined && 
 check('a row shows THAT turn\'s counts', firstRowCounts.includes('+1') && firstRowCounts.includes('+4') === false, firstRowCounts)
 
 // Turn 2: only the files that turn changed, deletions included.
-turnChips()[1].props.onClick()
+chipFor(2).props.onClick()
 await settle(4)
 tree = await rerender(viewElement())
 check('the other turn lists only its own files', JSON.stringify(rowPaths().sort()) === JSON.stringify(['src/gone.txt', 'src/keep.txt', 'src/late.txt']), JSON.stringify(rowPaths()))
@@ -1039,7 +1041,7 @@ check('the comparison on screen switched turns', textOf(tree).includes('turn-two
 check('the row counts are that turn\'s', textOf(findAll(tree, node => node.props !== undefined && node.props['data-path'] === 'src/keep.txt')[0]).includes('+4'), textOf(findAll(tree, node => node.props !== undefined && node.props['data-path'] === 'src/keep.txt')[0]))
 
 // Back to the aggregate: everything, compared at each file's newest turn.
-turnChips()[0].props.onClick()
+chipFor('all').props.onClick()
 await settle(4)
 tree = await rerender(viewElement())
 check('the aggregate chip restores every file', rowPaths().length === 4, JSON.stringify(rowPaths()))
@@ -1058,11 +1060,11 @@ const chooseMode = async (mode) => {
 seedRoutes()
 check('the axis switch is present', modeChips().length === 2, String(modeChips().length))
 check('the delta axis starts pressed', modeChips()[0].props['aria-pressed'] === true && modeChips()[1].props['aria-pressed'] === false, JSON.stringify(modeChips().map(chip => chip.props['aria-pressed'])))
-check('the delta axis counts a turn\'s OWN files', textOf(turnChips()[1]).includes('3'), textOf(turnChips()[1]))
+check('the delta axis counts a turn\'s OWN files', textOf(chipFor(2)).includes('3'), textOf(chipFor(2)))
 check('the delta axis lists every changed file', rowPaths().length === 4, JSON.stringify(rowPaths()))
 
 // Turn 2 in the delta axis: exactly what that turn touched, deletions included.
-turnChips()[1].props.onClick()
+chipFor(2).props.onClick()
 await settle(4)
 tree = await rerender(viewElement())
 check('the delta axis lists what the turn touched', JSON.stringify(rowPaths().sort()) === JSON.stringify(['src/gone.txt', 'src/keep.txt', 'src/late.txt']), JSON.stringify(rowPaths()))
@@ -1076,7 +1078,7 @@ check('the state axis keeps files changed by earlier turns', rowPaths().includes
 check('the state list is the files that exist', rowPaths().length === 3, JSON.stringify(rowPaths()))
 check('the deleted file is counted, not listed', textOf(tree).includes('1 个已删除'), textOf(tree))
 check('the axis switch is remembered', storage.get('dsh-diff-view.mode') === 'state', String(storage.get('dsh-diff-view.mode')))
-check('the state axis counts files changed up to the turn', textOf(turnChips()[2]).includes('2'), textOf(turnChips()[2]))
+check('the state axis counts files changed up to the turn', textOf(chipFor(1)).includes('2'), textOf(chipFor(1)))
 
 // A file whose last change is an EARLIER turn is still compared at that turn.
 const earlyRow = findAll(tree, node => node.props !== undefined && node.props['data-path'] === 'src/early.txt')[0]
@@ -1205,13 +1207,22 @@ const TURN_DETAIL = turn => `/api/dsh-diff/turn?sessionId=sess-1&turn=${turn}`
 const TURN_FILE = '/api/dsh-diff/file?scope=session&sessionId=sess-1&path=src%2Fkeep.txt&at=2%3A9%3A0'
 const TURN_FILE_ONE = '/api/dsh-diff/file?scope=session&sessionId=sess-1&path=src%2Fearly.txt&at=1%3A4%3A1'
 
+/**
+ * An answer with the shapes a real one has: a heading, prose, a bulleted list
+ * with inline code, and a fenced block. Rendered by the shell's `MarkdownText`
+ * when the page exposes it, and by the bundle's own renderer when it does not —
+ * the assertions below check BOTH paths.
+ */
+const MARKDOWN_ANSWER = '## 结论\n\n改完了：两个文件。\n\n- `keep.txt` 改了 4 行\n- `gone.txt` 删了 3 行\n\n```js\nconst a = 1\n```\n'
+
 const turnListResponse = {
   ok: true,
   cwd: 'F:/ws',
+  /* Oldest first: the route's own order, which the view renders verbatim. */
   turns: [
-    { turn: 3, open: true, seq: 13, time: 3000, prompt: null, answer: null, files: 0, added: 0, deleted: 0 },
-    { turn: 2, open: false, seq: 6, time: 2000, prompt: { text: '第二轮：把状态也算出来', truncated: false, human: true }, answer: { text: '改完了：两个文件。', truncated: false }, files: 3, added: 4, deleted: 4 },
     { turn: 1, open: false, seq: 1, time: 1000, prompt: { text: '第一轮'.repeat(60), truncated: true, human: true }, answer: { text: '先看座位。', truncated: false }, files: 2, added: 2, deleted: 0 },
+    { turn: 2, open: false, seq: 6, time: 2000, prompt: { text: '第二轮：把状态也算出来', truncated: false, human: true }, answer: { text: MARKDOWN_ANSWER, truncated: false }, files: 3, added: 4, deleted: 4 },
+    { turn: 3, open: true, seq: 13, time: 3000, prompt: null, answer: null, files: 0, added: 0, deleted: 0 },
   ],
 }
 
@@ -1236,7 +1247,7 @@ responses = new Map([
     { path: 'src/keep.txt', display: 'src/keep.txt', status: 'modified', added: 4, deleted: 1, at: { turn: 2, seq: 9, index: 0 } },
     { path: 'src/gone.txt', display: 'src/gone.txt', status: 'deleted', added: 0, deleted: 3, at: { turn: 2, seq: 9, index: 1 } },
     { path: 'F:/ws/src/absolute.js', display: 'F:/ws/src/absolute.js', status: 'added', added: 0, deleted: 0, at: null, derived: true },
-  ], { text: '第二轮：把状态也算出来', truncated: false, human: true }, { text: '改完了：两个文件。', truncated: false })],
+  ], { text: '第二轮：把状态也算出来', truncated: false, human: true }, { text: MARKDOWN_ANSWER, truncated: false })],
   [TURN_DETAIL(1), turnDetail(1, [
     { path: 'src/early.txt', display: 'src/early.txt', status: 'added', added: 2, deleted: 0, at: { turn: 1, seq: 4, index: 1 } },
   ], { text: '第一轮'.repeat(60), truncated: true, human: true }, { text: '先看座位。', truncated: false })],
@@ -1255,12 +1266,13 @@ const turnFileRows = () => findAll(turnTree, node => node.type === 'button' && n
 
 check('the turn browser reads its own route', requests.some(entry => entry.url === TURNS_LIST), JSON.stringify(requests.map(entry => entry.url)))
 check('it lists one row per turn', turnRows().length === 3, JSON.stringify(turnRows().map(row => row.props['data-turn'])))
-check('rows are newest first', JSON.stringify(turnRows().map(row => row.props['data-turn'])) === JSON.stringify(['3', '2', '1']), JSON.stringify(turnRows().map(row => row.props['data-turn'])))
-check('a running turn is marked', textOf(turnRows()[0]).includes('进行中'), textOf(turnRows()[0]))
+check('the first turn is at the top', JSON.stringify(turnRows().map(row => row.props['data-turn'])) === JSON.stringify(['1', '2', '3']), JSON.stringify(turnRows().map(row => row.props['data-turn'])))
+check('a running turn is marked', textOf(turnRows()[2]).includes('进行中'), textOf(turnRows()[2]))
 check('a row carries the turn\'s own counts', textOf(turnRows()[1]).includes('3') && textOf(turnRows()[1]).includes('+4'), textOf(turnRows()[1]))
-check('a turn with no changes shows none', textOf(turnRows()[0]).includes('+') === false, textOf(turnRows()[0]))
-check('the newest turn starts selected', turnRows()[0].props['aria-selected'] === true, JSON.stringify(turnRows().map(row => row.props['aria-selected'])))
+check('a turn with no changes shows none', textOf(turnRows()[2]).includes('+') === false, textOf(turnRows()[2]))
+check('the newest turn starts selected', turnRows()[2].props['aria-selected'] === true, JSON.stringify(turnRows().map(row => row.props['aria-selected'])))
 check('selecting reads that turn', requests.some(entry => entry.url === TURN_DETAIL(3)), JSON.stringify(requests.map(entry => entry.url)))
+check('a row is dated the way the shell dates a row', textOf(turnRows()[0]).includes('时间') === false && /\d/u.test(textOf(turnRows()[0])), textOf(turnRows()[0]))
 check('an open turn with no changes says so', textOf(turnTree).includes('这一轮没有改动文件'), textOf(turnTree))
 check('an open turn with no prompt says so', textOf(turnTree).includes('这一轮没有记录到提问'), textOf(turnTree))
 
@@ -1292,7 +1304,7 @@ check('a file with no stored comparison asks for none', requests.some(entry => e
 check('and says there is none', textOf(turnTree).includes('这一轮没有留下对比记录'), textOf(turnTree))
 
 // Turn 1: a long prompt is clipped, and the note says so.
-turnRows()[2].props.onClick()
+turnRows()[0].props.onClick()
 await settle(4)
 turnTree = await rerender(React.createElement(TurnsView, Object.assign({}, viewProps, turnFace)))
 check('a truncated text is noted', textOf(turnTree).includes('内容较长'), textOf(turnTree))
@@ -1309,6 +1321,53 @@ turnTree = await render(React.createElement(TurnsView, Object.assign({}, viewPro
 check('a failed turn list explains itself', textOf(turnTree).includes('读取失败'), textOf(turnTree))
 check('and offers a retry', textOf(turnTree).includes('重试'), textOf(turnTree))
 check('with no rows to mislead', turnRows().length === 0, JSON.stringify(turnRows().length))
+
+/* A page WITHOUT the shell's primitives.
+ *
+ * The bundle is loaded once per realm, but its factory is a pure function of the
+ * require it is handed, so a second call with a require that refuses the
+ * primitives module is exactly the page this fallback exists for: the answer must
+ * still be RENDERED as Markdown, never shown as its own source. */
+console.log('\nthe built-in Markdown renderer (no shell primitives)')
+const bareRegistrations = []
+const barePlugin = loaded.factory((name) => {
+  if (name === 'react') return React
+  throw new Error(`refused: ${name}`)
+})
+const bareCtx = {
+  effect(fn) { const cleanup = fn(); return () => { if (typeof cleanup === 'function') cleanup() } },
+  locale: { register() {}, bind() { return (key) => key } },
+  slots: {
+    inject(slot, register) { register() },
+    register(options, component) { bareRegistrations.push({ options, component }); return () => {} },
+  },
+}
+barePlugin.apply(bareCtx)
+check('the plugin still registers its tabs without the primitives', bareRegistrations.length === 2, String(bareRegistrations.length))
+const BareTurns = bareRegistrations[1]?.component
+const bareFace = bareRegistrations[1]?.options.inject('sess-1')
+responses = new Map([
+  [TURNS_LIST, turnListResponse],
+  [TURN_DETAIL(2), turnDetail(2, [
+    { path: 'src/keep.txt', display: 'src/keep.txt', status: 'modified', added: 4, deleted: 1, at: { turn: 2, seq: 9, index: 0 } },
+  ], { text: '第二轮：把状态也算出来', truncated: false, human: true }, { text: MARKDOWN_ANSWER, truncated: false })],
+  [TURN_FILE, { ok: true, scope: 'session', path: 'src/keep.txt', kind: 'text', before: true, after: true, coarse: false, hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 2, lines: [' first', '+turn-two'] }] }],
+])
+unmount()
+let bareTree = await render(React.createElement(BareTurns, Object.assign({}, viewProps, bareFace)))
+const bareTurnTwo = findAll(bareTree, node => node.type === 'button' && node.props?.['data-turn'] === '2')[0]
+bareTurnTwo.props.onClick()
+await settle(4)
+bareTree = await rerender(React.createElement(BareTurns, Object.assign({}, viewProps, bareFace)))
+const bareMarker = findAll(bareTree, node => node.props?.['data-markdown'] !== undefined)[0]
+check('the answer falls back to the built-in renderer', bareMarker?.props['data-markdown'] === 'builtin', JSON.stringify(bareMarker?.props))
+check('a heading becomes a heading block', findAll(bareTree, node => node.props?.className === 'dshdv-mdH' && node.props?.['data-level'] === '2').length === 1, JSON.stringify(findAll(bareTree, node => node.props?.className === 'dshdv-mdH').length))
+check('a list becomes a list', findAll(bareTree, node => node.type === 'ul').length === 1 && findAll(bareTree, node => node.type === 'li').length === 2, JSON.stringify(findAll(bareTree, node => node.type === 'li').length))
+check('inline code becomes code', findAll(bareTree, node => node.props?.className === 'dshdv-mdCode').length === 2, JSON.stringify(findAll(bareTree, node => node.props?.className === 'dshdv-mdCode').map(node => textOf(node))))
+check('a fence becomes a code block, not literal backticks', findAll(bareTree, node => String(node.props?.className ?? '').includes('dshdv-mdFence')).length === 1 && textOf(bareTree).includes('const a = 1'), textOf(bareTree))
+check('no raw Markdown syntax is left in the prose', textOf(bareTree).includes('## ') === false && textOf(bareTree).includes('```') === false, textOf(bareTree))
+check('the answer text survives the fallback', textOf(bareTree).includes('改完了：两个文件。'), textOf(bareTree))
+check('the shell renderer is not used on this page', findAll(bareTree, node => node.props?.['data-markdown'] === '').length === 0)
 
 console.log('\nunmount')
 unmount()
