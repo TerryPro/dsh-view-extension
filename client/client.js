@@ -393,7 +393,17 @@ window.__ModuleLoader__.load({
 			'.dshdv-mdRule{margin:24px 0;border:0;border-top:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.12))}',
 			'.dshdv-md strong{font-weight:600}',
 			'.dshdv-mdCode{padding:1px 4px;font:var(--dsw-font-markdown-code,12px/19px var(--ds-font-family-code,monospace));font-family:var(--ds-font-family-code,monospace);font-size:.875em;background-color:var(--dsw-alias-markdown-inline-code,rgba(0,0,0,.05));border:0.5px solid var(--dsw-alias-border-l1,rgba(0,0,0,.04));border-radius:var(--dsw-radius-xs,4px)}',
-			'.dshdv-mdFence{margin:16px 0}',
+			'.dshdv-mdFence{margin:16px 0;padding-bottom:8px;overflow-x:auto}',
+			/* A fence's banner, in the shell's code-block banner vocabulary. */
+			'.dshdv-mdFenceBanner{display:flex;align-items:center;gap:12px;padding:8px 18px 6px 22px;background:var(--dsw-alias-markdown-code-block-banner,transparent);color:var(--dsw-alias-label-tertiary,#8b939e);font:11px/18px var(--dsw-font-family,sans-serif)}',
+			'.dshdv-mdFenceLang{font-family:var(--ds-font-family-code,monospace)}',
+			/* Tables: the shell's own cell rules (`--dsw-alias-border-l3` under the
+			 * header, `-l2` between rows) inside a horizontal scroller. */
+			'.dshdv-mdTableScroll{max-width:100%;overflow-x:auto;margin:16px 0}',
+			'.dshdv-mdTable{border-collapse:collapse;min-width:min(100%,max-content);font:var(--dsw-font-markdown-base,14px/22px var(--dsw-font-family,sans-serif))}',
+			'.dshdv-mdTable th{text-align:left;font-weight:600;padding:6px 12px 6px 0;border-bottom:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.12));color:var(--dsw-alias-label-primary,#1b1f24)}',
+			'.dshdv-mdTable td{padding:6px 12px 6px 0;border-bottom:0.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.06));color:var(--dsw-alias-label-secondary,#5b636e);vertical-align:top}',
+			'.dshdv-mdTable th:last-child,.dshdv-mdTable td:last-child{padding-right:0}',
 			'.dshdv-mdLink{color:var(--dsw-alias-link,#3b6cf6);text-decoration:none}',
 			'.dshdv-mdLink:hover{text-decoration:underline}',
 			'.dshdv-tvEmpty{margin:0;color:var(--dsw-alias-label-tertiary,#8b939e);font-size:var(--dsh-content-font-size-secondary,13px)}',
@@ -1628,6 +1638,7 @@ window.__ModuleLoader__.load({
 				var fence = /^\s*(?:```|~~~)(.*)$/u.exec(line);
 				if (fence !== null) {
 					flush();
+					var language = fence[1].trim();
 					var code = [];
 					index += 1;
 					while (index < lines.length && /^\s*(?:```|~~~)\s*$/u.test(lines[index]) === false) {
@@ -1636,10 +1647,18 @@ window.__ModuleLoader__.load({
 					}
 					index += 1;
 					key += 1;
+					/* The fence is drawn as the shell draws a code block: a card on
+					 * `--dsw-alias-markdown-code-block` whose banner names the
+					 * language, with the body on the markdown code font. */
 					blocks.push(h('div', { key: 'code' + key, className: 'dshdv-code dshdv-mdFence', 'data-code-wrap': 'true' },
-						code.map(function (row, rowIndex) {
-							return h('div', { key: rowIndex, className: 'dshdv-line', 'data-kind': 'context' }, h('span', { className: 'dshdv-text' }, row));
-						})));
+						language === ''
+							? null
+							: h('div', { className: 'dshdv-mdFenceBanner' }, h('span', { className: 'dshdv-mdFenceLang' }, language)),
+						code.length === 0
+							? h('div', { className: 'dshdv-line', 'data-kind': 'context' }, h('span', { className: 'dshdv-text' }, ' '))
+							: code.map(function (row, rowIndex) {
+								return h('div', { key: rowIndex, className: 'dshdv-line', 'data-kind': 'context' }, h('span', { className: 'dshdv-text' }, row));
+							})));
 					continue;
 				}
 				var heading = /^(#{1,6})\s+(.*)$/u.exec(line);
@@ -1659,6 +1678,33 @@ window.__ModuleLoader__.load({
 				}
 				var bullet = /^\s*[-*+]\s+(.*)$/u.exec(line);
 				var numbered = /^\s*\d+[.)]\s+(.*)$/u.exec(line);
+				/* A GFM table starts with a row of pipes and continues while the
+				 * delimiter row under it says so; anything else is prose. */
+				if (/^\s*\|.*\|\s*$/u.test(line) && index + 1 < lines.length && /^\s*\|?[\s:|-]+\|[\s:|-]*$/u.test(lines[index + 1])) {
+					flush();
+					var cells = function (row) {
+						return row.trim().replace(/^\|/u, '').replace(/\|$/u, '').split('|').map(function (cell) { return cell.trim(); });
+					};
+					var head = cells(line);
+					index += 2;
+					var body = [];
+					while (index < lines.length && /^\s*\|.*\|\s*$/u.test(lines[index])) {
+						body.push(cells(lines[index]));
+						index += 1;
+					}
+					key += 1;
+					blocks.push(h('div', { key: 'tbl' + key, className: 'dshdv-mdTableScroll' },
+						h('table', { className: 'dshdv-mdTable' },
+							h('thead', null, h('tr', null, head.map(function (cell, cellIndex) {
+								return h('th', { key: cellIndex }, inlineMarkdown(cell));
+							}))),
+							h('tbody', null, body.map(function (row, rowIndex) {
+								return h('tr', { key: rowIndex }, row.map(function (cell, cellIndex) {
+									return h('td', { key: cellIndex }, inlineMarkdown(cell));
+								}));
+							})))));
+					continue;
+				}
 				if (bullet !== null || numbered !== null) {
 					flush();
 					var items = [];
@@ -2543,9 +2589,28 @@ window.__ModuleLoader__.load({
 			}
 		}
 
+		/**
+		 * Whether a seed-word export is something React can render.
+		 *
+		 * A component is NOT always a function: `React.memo`, `forwardRef` and
+		 * `lazy` all answer an OBJECT carrying `$$typeof`. Testing `typeof ===
+		 * 'function'` therefore rejects the shell's real `MarkdownText` — which is
+		 * `memo(...)` — while accepting a plain-function stand-in, so the guard
+		 * silently mis-read production and passed every test written against a stub
+		 * of the wrong shape. That mistake is why a page with the shell's renderer
+		 * available still showed raw Markdown.
+		 *
+		 * @param value - a seed-word export.
+		 * @returns true when `React.createElement` can render it.
+		 */
+		function isRenderable(value) {
+			if (typeof value === 'function') return true;
+			return typeof value === 'object' && value !== null && value.$$typeof !== undefined;
+		}
+
 		var PRIMITIVES = loadPrimitives();
-		var MarkdownText = typeof PRIMITIVES.MarkdownText === 'function' ? PRIMITIVES.MarkdownText : null;
-		var Tag = typeof PRIMITIVES.Tag === 'function' ? PRIMITIVES.Tag : null;
+		var MarkdownText = isRenderable(PRIMITIVES.MarkdownText) ? PRIMITIVES.MarkdownText : null;
+		var Tag = isRenderable(PRIMITIVES.Tag) ? PRIMITIVES.Tag : null;
 		var ShellrelativeTime = typeof PRIMITIVES.relativeTime === 'function' ? PRIMITIVES.relativeTime : null;
 
 		/**

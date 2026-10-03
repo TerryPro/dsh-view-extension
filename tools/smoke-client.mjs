@@ -434,14 +434,16 @@ windowStub.__ModuleLoader__ = { load(definition) { loaded = definition } }
  *
  * The bundle REQUIRES these rather than re-implementing them, so a harness that
  * refused the require would test the fallback path instead of the shipped one.
- * Each stub keeps the real module's contract: `MarkdownText` renders a
- * `[data-markdown]` root, `Tag` a `[data-tone]` capsule, and `relativeTime` the
- * shell's own bucketing (`{ unit, n }`) so the wording path is exercised.
+ * Each stub keeps the real module's contract — and the SHAPE matters as much as
+ * the behaviour: the shell's `MarkdownText` is `memo(...)`, i.e. an OBJECT rather
+ * than a function. A plain-function stub let a `typeof === 'function'` guard pass
+ * here while rejecting the real module in production, which is precisely the bug
+ * this stub now prevents.
  */
 const primitivesStub = {
-  MarkdownText: function MarkdownText(props) {
+  MarkdownText: React.memo(function MarkdownText(props) {
     return React.createElement('div', { 'data-markdown': '', 'data-variant': props.variant ?? 'body' }, props.text)
-  },
+  }),
   Tag: function Tag(props) {
     return React.createElement('span', { 'data-tone': props.tone ?? 'outline' }, props.children)
   },
@@ -1213,7 +1215,7 @@ const TURN_FILE_ONE = '/api/dsh-diff/file?scope=session&sessionId=sess-1&path=sr
  * when the page exposes it, and by the bundle's own renderer when it does not —
  * the assertions below check BOTH paths.
  */
-const MARKDOWN_ANSWER = '## 结论\n\n改完了：两个文件。\n\n- `keep.txt` 改了 4 行\n- `gone.txt` 删了 3 行\n\n```js\nconst a = 1\n```\n'
+const MARKDOWN_ANSWER = '## 结论\n\n改完了：两个文件。\n\n- `keep.txt` 改了 4 行\n- `gone.txt` 删了 3 行\n\n| 文件 | 改动 |\n|---|---|\n| keep.txt | +4 −1 |\n\n```js\nconst a = 1\n```\n'
 
 const turnListResponse = {
   ok: true,
@@ -1364,7 +1366,11 @@ check('the answer falls back to the built-in renderer', bareMarker?.props['data-
 check('a heading becomes a heading block', findAll(bareTree, node => node.props?.className === 'dshdv-mdH' && node.props?.['data-level'] === '2').length === 1, JSON.stringify(findAll(bareTree, node => node.props?.className === 'dshdv-mdH').length))
 check('a list becomes a list', findAll(bareTree, node => node.type === 'ul').length === 1 && findAll(bareTree, node => node.type === 'li').length === 2, JSON.stringify(findAll(bareTree, node => node.type === 'li').length))
 check('inline code becomes code', findAll(bareTree, node => node.props?.className === 'dshdv-mdCode').length === 2, JSON.stringify(findAll(bareTree, node => node.props?.className === 'dshdv-mdCode').map(node => textOf(node))))
-check('a fence becomes a code block, not literal backticks', findAll(bareTree, node => String(node.props?.className ?? '').includes('dshdv-mdFence')).length === 1 && textOf(bareTree).includes('const a = 1'), textOf(bareTree))
+const hasClass = (node, name) => String(node?.props?.className ?? '').split(/\s+/u).includes(name)
+check('a fence becomes a code block, not literal backticks', findAll(bareTree, node => hasClass(node, 'dshdv-mdFence')).length === 1 && textOf(bareTree).includes('const a = 1'), textOf(bareTree))
+const bareLangs = findAll(bareTree, node => hasClass(node, 'dshdv-mdFenceLang'))
+check('a fence names its language', bareLangs.length === 1 && textOf(bareLangs[0]).trim() === 'js', JSON.stringify({ count: bareLangs.length, text: bareLangs.map(node => textOf(node)) }))
+check('a pipe table becomes a real table', findAll(bareTree, node => node.type === 'table').length === 1 && findAll(bareTree, node => node.type === 'th').length === 2, JSON.stringify({ tables: findAll(bareTree, node => node.type === 'table').length, headers: findAll(bareTree, node => node.type === 'th').length }))
 check('no raw Markdown syntax is left in the prose', textOf(bareTree).includes('## ') === false && textOf(bareTree).includes('```') === false, textOf(bareTree))
 check('the answer text survives the fallback', textOf(bareTree).includes('改完了：两个文件。'), textOf(bareTree))
 check('the shell renderer is not used on this page', findAll(bareTree, node => node.props?.['data-markdown'] === '').length === 0)
