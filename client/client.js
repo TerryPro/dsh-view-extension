@@ -109,6 +109,8 @@ window.__ModuleLoader__.load({
 		var TURNS_LIST_KEY = NAMESPACE + '.turnsListWidth';
 		var TURNS_SAID_KEY = NAMESPACE + '.turnsSaidShare';
 		var TURNS_FILES_KEY = NAMESPACE + '.turnsFilesWidth';
+		/** The share of the question column given to the question itself. */
+		var TURNS_ASK_KEY = NAMESPACE + '.turnsAskShare';
 
 		/** Where the two divider positions live, so a reader's layout survives a reload. */
 		var LEFT_WIDTH_KEY = NAMESPACE + '.leftWidth';
@@ -324,6 +326,7 @@ window.__ModuleLoader__.load({
 				'layout.turnList': '调整轮次列表宽度',
 				'layout.saidSplit': '调整问答与文件的高度',
 				'layout.turnFiles': '调整文件与对比的宽度',
+				'layout.askSplit': '调整问题与回答的高度',
 				'list.empty': '当前范围没有改动',
 				'list.emptyFiltered': '没有匹配的文件',
 				'list.loading': '正在读取改动…',
@@ -491,6 +494,7 @@ window.__ModuleLoader__.load({
 				'layout.turnList': 'Resize the turn list',
 				'layout.saidSplit': 'Resize the question against the files',
 				'layout.turnFiles': 'Resize the file list against the comparison',
+				'layout.askSplit': 'Resize the question against the answer',
 				'list.emptyFiltered': 'No file matches the filter',
 				'list.loading': 'Reading changes…',
 				'diff.empty': 'Pick a file on the left to see its comparison',
@@ -620,7 +624,13 @@ window.__ModuleLoader__.load({
 			 * than content-sized on purpose: the reader compares turns by the same
 			 * geometry every time, and a long answer scrolls inside its third instead
 			 * of pushing the file pane off the bottom of the tab. */
-			'.dshdv-tvSaid{flex:0 0 var(--dshdv-tv-said,33.33%);min-height:0;overflow-y:auto;padding:12px 16px}',
+			'.dshdv-tvSaid{display:flex;flex-direction:column;flex:0 0 var(--dshdv-tv-said,33.33%);min-height:0;overflow:hidden}',
+			'.dshdv-tvAskPane{display:flex;flex-direction:column;flex:0 0 var(--dshdv-tv-ask,40%);min-height:0}',
+			'.dshdv-tvAnswerPane{display:flex;flex-direction:column;flex:1 1 auto;min-height:0}',
+			/* A panel's own header: the same 26px label row the file panes use, so the two
+			 * halves read as siblings rather than as one document. */
+			'.dshdv-tvPaneHead{display:flex;align-items:center;gap:6px;flex:none;height:26px;padding:0 12px;color:var(--dsw-alias-label-tertiary,#8b939e);font-size:11px}',
+			'.dshdv-tvPaneBody{flex:1 1 auto;min-height:0;overflow-y:auto;padding:10px 16px}',
 			'.dshdv-tvSaidBlock+.dshdv-tvSaidBlock{margin-top:14px}',
 			/* The question is the shell's own user bubble: right-aligned, on
 			 * `--dsw-specific-bubble`, at `--dsw-radius-xl`, sized by the body axis
@@ -2640,6 +2650,7 @@ window.__ModuleLoader__.load({
 				return {
 					listWidth: remembered(TURNS_LIST_KEY, 196),
 					saidShare: remembered(TURNS_SAID_KEY, 33.33),
+					askShare: remembered(TURNS_ASK_KEY, 40),
 					filesWidth: remembered(TURNS_FILES_KEY, 190),
 					/** Assigned to `gripFor` below; the state object is created first. */
 					grip: function () { return null; },
@@ -2650,6 +2661,7 @@ window.__ModuleLoader__.load({
 			var tvRootRef = React.useRef(null);
 			var tvMainRef = React.useRef(null);
 			var tvFilesRef = React.useRef(null);
+			var tvSaidRef = React.useRef(null);
 			var state = React.useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
 			var wrapState = React.useState(function () { return readPreference(WRAP_KEY, 'wrap') !== 'nowrap'; });
 			var wrap = wrapState[0];
@@ -2767,9 +2779,20 @@ window.__ModuleLoader__.load({
 			} else if (state.selected === null) {
 				said = h('div', { className: 'dshdv-tvSaid' }, h('div', { className: 'dshdv-status' }, h('p', null, t('turns.list.empty'))));
 			} else {
-				said = h('div', { className: 'dshdv-tvSaid', 'data-dsh-diff-said': '' },
-					askBlock(state.prompt, t('turns.noAsk'), t('turns.truncated'), format, t('turns.ask')),
-					answerBlock(state.answer, t('turns.noAnswer'), t('turns.truncated'), format, markdownLabels, t('turns.answer')));
+				/* The question and the answer are two panels, not two blocks in one: each
+				 * gets its own header, and the seam between them is the same draggable one
+				 * the rest of the view uses. A reader looking for "what did I ask" should not
+				 * have to find it inside the answer's scroll. */
+				said = h('div', { className: 'dshdv-tvSaid', 'data-dsh-diff-said': '', ref: tvSaidRef },
+					h('div', { className: 'dshdv-tvAskPane', 'data-dsh-diff-pane': 'ask' },
+						h('div', { className: 'dshdv-tvPaneHead' }, t('turns.ask')),
+						h('div', { className: 'dshdv-tvPaneBody' },
+							askBlock(state.prompt, t('turns.noAsk'), t('turns.truncated'), format, t('turns.ask')))),
+					layout.grip('ask', t('layout.askSplit')),
+					h('div', { className: 'dshdv-tvAnswerPane', 'data-dsh-diff-pane': 'answer' },
+						h('div', { className: 'dshdv-tvPaneHead' }, t('turns.answer')),
+						h('div', { className: 'dshdv-tvPaneBody' },
+							answerBlock(state.answer, t('turns.noAnswer'), t('turns.truncated'), format, markdownLabels, t('turns.answer')))));
 			}
 
 			var filesBody;
@@ -2840,9 +2863,10 @@ window.__ModuleLoader__.load({
 			 * break the layout. */
 			var gripFor = function (kind, label) {
 				var spec = {
-					list: { axis: 'x', cssVar: '--dshdv-tv-list-w', key: TURNS_LIST_KEY, min: 140, max: 460, percent: false, container: function () { return tvRootRef.current; }, value: function () { return layout.listWidth; } },
-					said: { axis: 'y', cssVar: '--dshdv-tv-said', key: TURNS_SAID_KEY, min: 15, max: 85, percent: true, container: function () { return tvMainRef.current; }, value: function () { return layout.saidShare; } },
-					files: { axis: 'x', cssVar: '--dshdv-tv-files-w', key: TURNS_FILES_KEY, min: 120, max: 420, percent: false, container: function () { return tvFilesRef.current; }, value: function () { return layout.filesWidth; } },
+					list: { axis: 'x', cssVar: '--dshdv-tv-list-w', key: TURNS_LIST_KEY, field: 'listWidth', min: 140, max: 460, percent: false, container: function () { return tvRootRef.current; }, value: function () { return layout.listWidth; } },
+					said: { axis: 'y', cssVar: '--dshdv-tv-said', key: TURNS_SAID_KEY, field: 'saidShare', min: 15, max: 85, percent: true, container: function () { return tvMainRef.current; }, value: function () { return layout.saidShare; } },
+					files: { axis: 'x', cssVar: '--dshdv-tv-files-w', key: TURNS_FILES_KEY, field: 'filesWidth', min: 120, max: 420, percent: false, container: function () { return tvFilesRef.current; }, value: function () { return layout.filesWidth; } },
+					ask: { axis: 'y', cssVar: '--dshdv-tv-ask', key: TURNS_ASK_KEY, field: 'askShare', min: 15, max: 85, percent: true, container: function () { return tvSaidRef.current; }, value: function () { return layout.askShare; } },
 				}[kind];
 				var room = function () {
 					var node = spec.container();
@@ -2869,9 +2893,7 @@ window.__ModuleLoader__.load({
 				var commit = function (value) {
 					var settled = share(value);
 					var next = Object.assign({}, layout);
-					if (spec.percent) next.saidShare = settled;
-					else if (kind === 'list') next.listWidth = settled;
-					else next.filesWidth = settled;
+					next[spec.field] = settled;
 					setLayout(next);
 					writePreference(spec.key, spec.percent ? settled.toFixed(2) : String(Math.round(settled)));
 				};
@@ -2921,6 +2943,7 @@ window.__ModuleLoader__.load({
 				style: {
 					'--dshdv-tv-list-w': String(Math.round(layout.listWidth)) + 'px',
 					'--dshdv-tv-said': layout.saidShare.toFixed(2) + '%',
+					'--dshdv-tv-ask': layout.askShare.toFixed(2) + '%',
 					'--dshdv-tv-files-w': String(Math.round(layout.filesWidth)) + 'px',
 				},
 			},

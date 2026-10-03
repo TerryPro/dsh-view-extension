@@ -2336,6 +2336,8 @@ tvListGrip.props.onPointerDown({ button: 0, clientX: 300, pointerId: 21, prevent
 check('dragging the turn-list seam writes its variable', tvWrites.some(entry => entry.startsWith('--dshdv-tv-list-w=')), JSON.stringify(tvWrites))
 ;[...windowListeners.get('pointerup')].slice(-1)[0]()
 check('and releasing remembers it', Number(storage.get('dsh-diff-view.turnsListWidth')) === 256, String(storage.get('dsh-diff-view.turnsListWidth')))
+check('and its share starts from a variable', findAll(qaTree, node => node.props?.['data-dsh-diff-turns'] !== undefined)[0]?.props?.style?.['--dshdv-tv-ask'] !== undefined, JSON.stringify(findAll(qaTree, node => node.props?.['data-dsh-diff-turns'] !== undefined)[0]?.props?.style))
+
 console.log('\nunmount')
 unmount()
 const cleanups = []
