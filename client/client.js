@@ -678,7 +678,7 @@ window.__ModuleLoader__.load({
 			/* The tree's width is the reader's to set, and it lives in a custom property
 			 * on the view — so a drag writes one variable per pointer move and React
 			 * renders nothing until the gesture ends. */
-			'.dshdv-fvTree{display:flex;flex-direction:column;flex:0 0 auto;width:var(--dshdv-tree-w,236px);min-width:0;min-height:0;border-right:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.08))}',
+			'.dshdv-fvTree{display:flex;flex-direction:column;flex:0 0 auto;width:var(--dshdv-tree-w,236px);min-width:0;min-height:0}',
 			/* The tree header and rows are the shell's files-panel geometry, number
 			 * for number (`ui-sidebar-files` FilesBody.module.css): a 38px header row
 			 * with a hairline underneath, 18px of indent per level, rows that abut so
@@ -767,13 +767,14 @@ window.__ModuleLoader__.load({
 			'.dshdv-add{color:var(--dsw-alias-state-success-primary,#1a7f37)}',
 			'.dshdv-del{color:var(--dsw-alias-state-error-primary,#c0392b)}',
 			'.dshdv-main{display:flex;flex:1 1 auto;min-height:0}',
-			'.dshdv-list{flex:0 0 272px;min-width:180px;max-width:45%;display:flex;flex-direction:column;border-right:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.08));background:var(--dsw-alias-bg-layer-1,#fafbfc);overflow:hidden}',
 			/* The history browser is three panes around two draggable dividers: the
 			 * commit list above the file list on the left, the comparison on the right.
 			 * The two geometry values live in CSS variables on the container, so a drag
 			 * writes one variable per move and nothing re-renders. */
 			'.dshdv-gitLeft{display:flex;flex-direction:column;flex:0 0 auto;width:var(--dshdv-left-w,272px);min-width:0;min-height:0;background:var(--dsw-alias-bg-layer-1,#fafbfc)}',
 			'.dshdv-gitHistory{display:flex;flex-direction:column;flex:0 0 var(--dshdv-left-split,38%);min-height:0;overflow:hidden}',
+			/* No border of its own: the divider below it draws the line, and two lines a pixel
+			 * apart read as a seam rather than a separator. */
 			'.dshdv-gitFiles{display:flex;flex:1 1 auto;min-height:0;overflow:hidden}',
 			/* A divider: 5px of hit area over a hairline, in the shell\'s separator ink.
 			 * Neither pane may shrink past its own scroll, hence the clamps in the
@@ -815,7 +816,6 @@ window.__ModuleLoader__.load({
 			/* The tree's own scroller geometry (ui-sidebar-files FilesBody `.body`): a
 			 * 2px scrollbar offset, a stable gutter, and rows inset 8px from the pane
 			 * edge so the hover fill never touches the border. */
-			'.dshdv-listBody{flex:1 1 auto;overflow:auto;margin-right:2px;padding:8px 0 8px 8px;scrollbar-gutter:stable;contain:content}',
 			/* Row vocabulary copied from the shell's own lists — `ui-workspace`'s
 			 * Rows (`.sessionRow`), `ui-sidebar-files`' FilesBody (`.row`):
 			 * `--dsw-alias-label-primary` ink, `--dsw-radius-md`, and ONE
@@ -838,6 +838,10 @@ window.__ModuleLoader__.load({
 			'.dshdv-dirName{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--dsw-alias-label-tertiary,#8b939e)}',
 			'.dshdv-counts{flex:none;display:inline-flex;gap:4px;font-size:11px;font-variant-numeric:tabular-nums}',
 			'.dshdv-body{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;overflow:hidden}',
+			/* A pane's scrolling list: the shell tree's body geometry — a 2px scrollbar
+			 * offset, a stable gutter, rows inset 8px from the pane, and contain so a
+			 * relayout cannot ripple out of it. */
+			'.dshdv-listBody{flex:1 1 auto;overflow:auto;margin-right:2px;padding:8px 0 8px 8px;scrollbar-gutter:stable;contain:content}',
 			/* A pane with nothing to list is NOT a scroller: the status fills the pane
 			 * and no scroll container is rendered at all, so there is neither a
 			 * scrollbar nor a reserved gutter to look at. */
@@ -5282,4 +5286,5 @@ window.__ModuleLoader__.load({
 		return module.exports;
 	},
 });
+
 

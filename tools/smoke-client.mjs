@@ -2249,6 +2249,17 @@ const treeRowsNow = findAll(fileTree, node => node.props?.['data-kind'] !== unde
 check('a root-level tree row carries no tooltip at all', treeRowsNow.filter(node => node.props['data-path'].indexOf('/') === -1).every(node => node.props.title === undefined), JSON.stringify(treeRowsNow.filter(node => node.props['data-path'].indexOf('/') === -1).map(node => [node.props['data-path'], node.props.title])))
 check('a nested tree row names only its directories', treeRowsNow.filter(node => node.props['data-path'].indexOf('/') !== -1).every(node => typeof node.props.title === 'string' && !String(node.props.title).endsWith(String(node.props['data-path']).split('/').pop())), JSON.stringify(treeRowsNow.filter(node => node.props['data-path'].indexOf('/') !== -1).map(node => [node.props['data-path'], node.props.title])))
 
+/* ONE line per seam. A pane that draws its own border beside a divider that draws
+ * one leaves two hairlines a pixel apart, which reads as a seam rather than a
+ * separator. The divider keeps the line: it is the one that reacts to hover and
+ * shows where the handle is. */
+const fvTreeRule = /^\.dshdv-fvTree\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
+check('the tree does not draw a line the divider already draws', !fvTreeRule.includes('border-right'), fvTreeRule)
+for (const selector of ['.dshdv-gitLeft', '.dshdv-gitHistory', '.dshdv-gitFiles']) {
+  const rule = new RegExp(`^${selector.replace(/[.[\]$^*+?(){}|\\]/gu, '\\$&')}\\{([^}]*)\\}`, 'mu').exec(styles)?.[1] ?? ''
+  check(`no border of its own: ${selector}`, !/border-(right|bottom|top|left):/u.test(rule), rule)
+}
+check('and the divider is what draws it', String(/^\.dshdv-grip::after\{([^}]*)\}/mu.exec(styles)?.[1]).includes('background:'), /^\.dshdv-grip::after\{([^}]*)\}/mu.exec(styles)?.[1])
 console.log('\nunmount')
 unmount()
 const cleanups = []

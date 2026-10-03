@@ -201,6 +201,13 @@ if (locales.has(localeKey(locale))) throw new Error(`locale namespace "${ns}" al
 ```
 
 `CodeBlock`、`FileDiff`、消息里的代码全用它。现在编辑器正文、行号槽、面板也都用**同一条简写**（`.cm-scroller` 与 `.cm-content` 都要设：CodeMirror 自带主题在 content 上声明了 monospace 与行高，不覆盖就会赢）。
+#### 一条缝只留一条线
+
+现象（截图）：树与编辑器之间有**两条并排的细线**。成因是重复 —— `.dshdv-fvTree` 自带 `border-right`，而分隔条自己又画一条 `::after` 细线，两条相距 1px。
+
+保留**分隔条那条**：它会随悬停变色、也是拖拽手柄的可视位置。窗格自己的边框去掉。同一原则写进了护栏：三个 Git 窗格（`gitLeft`/`gitHistory`/`gitFiles`）都**不得**自带边框，线只由分隔条画。
+
+顺带清掉了一条**已经没人用**的旧规则（`.dshdv-list`，重组三栏后由 `gitLeft`/`gitHistory`/`gitFiles` 取代）。清理时我一度把仍在用的 `.dshdv-listBody` 一起删了，测试立刻报出来，已恢复 —— 这也说明"删死代码"这件事值得有护栏兜着。
 #### 文件树的宽度也能拖（复用同一条分隔条机制）
 
 文件树原来固定 236px。现在它和 Git 浏览器那两条分隔条**走同一套机制**：`--dshdv-tree-w` 一个 CSS 变量 → 拖动时每次 pointermove 只写变量、不触发渲染 → 松手落一次状态并持久化（`dsh-diff-view.treeWidth`）→ 方向键也能调（←/→，16px 一步）→ 上下限 140–560px（且不超过视图宽的 60%）。
@@ -528,7 +535,7 @@ dsh plugin add link:F:/deepseek_harness_workspace/dsh-diff-view
 ```bash
 node tools/test-host.mjs      # 191 项
 node tools/test-editor-chunk.mjs  # 33 项（CodeMirror 分块产物：注册、导出面、语法映射、缩进推断）：解析器对真实 git 输出、路由行为、会话折叠与兜底、围栏
-node tools/smoke-client.mjs   # 329 项（兜底编辑器）：契约、注册、渲染、交互、失败态
+node tools/smoke-client.mjs   # 334 项（兜底编辑器）：契约、注册、渲染、交互、失败态
 npm test                      # 两个都跑
 ```
 
