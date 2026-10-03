@@ -598,12 +598,20 @@ async function main() {
   ok(newest.short === newest.sha.slice(0, 7) && typeof newest.subject === 'string' && newest.subject !== '', 'and a short id plus a subject', JSON.stringify({ short: newest.short, subject: newest.subject }))
   ok(typeof newest.author === 'string' && newest.author !== '' && /^\d{4}-\d{2}-\d{2}T/u.test(newest.at), 'and an author and a date', JSON.stringify({ author: newest.author, at: newest.at }))
   ok(history.body.commits.every(entry => !String(entry.subject).includes('\u0001')), 'the field separator never leaks into a value', JSON.stringify(history.body.commits.map(entry => entry.subject)))
+  /* What a commit carries BESIDES its id: the author, the decorations pointing at
+   * it, whether it is a merge, and what it changed — all from the one log read. */
+  ok(typeof newest.email === 'string' && newest.email.includes('@'), 'a commit carries its author address', JSON.stringify(newest.email))
+  ok(Array.isArray(newest.refs), 'and its branch/tag decorations as a list', JSON.stringify(newest.refs))
+  ok(Number.isInteger(newest.parents) && newest.parents >= 1, 'and its parent count', String(newest.parents))
+  ok(Number.isInteger(newest.files) && newest.files >= 1, 'and how many files it changed', String(newest.files))
+  ok(Number.isInteger(newest.added) && Number.isInteger(newest.deleted), 'and the lines it added and removed', JSON.stringify([newest.added, newest.deleted]))
 
   const detail = await callRoute(commitDetailRoute, `/api/dsh-diff/commit-detail?sessionId=fixture&sha=${newest.sha}`)
   ok(detail.status === 200 && detail.body?.commit?.sha === newest.sha, 'one commit reads back in full', JSON.stringify(detail.body?.error))
   ok(Array.isArray(detail.body?.files) && detail.body.files.length >= 1, 'with the files it touched', JSON.stringify(detail.body?.files))
   ok(detail.body.files.every(file => typeof file.path === 'string' && file.path !== '' && typeof file.status === 'string'), 'each naming a path and a status', JSON.stringify(detail.body.files))
   ok(detail.body.files.every(file => Number.isSafeInteger(file.added) && Number.isSafeInteger(file.deleted)), 'and its line counts', JSON.stringify(detail.body.files))
+  ok(detail.body.files.length === newest.files, 'the row\'s file count agrees with the commit detail', JSON.stringify([newest.files, detail.body.files.length]))
   const badCommit = await callRoute(commitDetailRoute, '/api/dsh-diff/commit-detail?sessionId=fixture&sha=' + 'f'.repeat(40))
   ok(badCommit.status === 404, 'a commit that does not exist is a 404', JSON.stringify(badCommit.body))
 

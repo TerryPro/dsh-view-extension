@@ -1,23 +1,20 @@
-dsh-diff-view: three panes, two draggable dividers
+dsh-diff-view: richer commit rows, and an order toggle
 
-Layout per the request: the commit list above the file list on the left, the
-comparison on the right, with a divider between the two axes.
+A commit row now carries what one `git log` can honestly give (no process per row):
+the subject, the short id, the author (address on hover), the relative time
+(absolute on hover), the branch/tag decorations from %D, a merge marker from the
+parent count, and the change size from --numstat as "N files +x -y" with a `bin`
+mark for binaries. --numstat rather than --shortstat because the latter's text is
+LOCALIZED: parsing "3 files changed" would tie the UI to one language.
 
-- both dividers are role="separator": pointer drag AND arrow keys (16px / 4% a
-  step), with a floor and a ceiling on each
-- geometry lives in custom properties on the container, so a drag writes ONE
-  variable per pointermove and renders nothing until release, when the choice is
-  persisted (dsh-diff-view.leftWidth / .leftSplit)
-- the vertical share is stored as a percentage so a window resize cannot break the
-  layout; the width is stored in pixels
-- real bug this found: the first version added a pixel delta to a percentage, so
-  the history/files divider jumped to nonsense values. The gesture is now pixels
-  throughout and converts once, on commit.
+The order toggle flips the loaded page between newest-first and oldest-first and
+remembers the choice. The page itself is always READ newest-first, so the label
+says "within the loaded page" rather than pretending the history was re-read.
 
-The harness learned two things it was silently lying about: it never invoked refs
-(callback OR object), and its host elements had no style object or box. Every
-behaviour reading a ref — the editor's textarea registry, this view's divider
-geometry — was therefore untested and only appeared to work because each caller
-had a fallback.
+Also: the client now normalizes commit entries, because the browser and host
+halves reload independently -- a row must not crash on a Host that still answers
+the older shape (no refs/parents/counts). Two tests cover that skew. And the
+"not a repository" notice no longer tells the reader to switch to a scope that no
+longer exists.
 
-290 client checks, 170 host checks.
+176 host checks, 302 client checks.

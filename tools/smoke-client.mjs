@@ -747,8 +747,34 @@ const HISTORY = {
   cwd: 'F:/ws',
   more: false,
   commits: [
-    { sha: COMMIT_SHA, short: 'a1b2c3d', author: 'hexiaoyu', at: new Date(Date.now() - 60_000).toISOString(), subject: 'second round: tighten the parser' },
-    { sha: 'b'.repeat(40), short: 'bbbbbbb', author: 'hexiaoyu', at: new Date(Date.now() - 3 * 3_600_000).toISOString(), subject: 'first round: read the session log' },
+    {
+      sha: COMMIT_SHA,
+      short: 'a1b2c3d',
+      author: 'hexiaoyu',
+      email: 'he.xiaoyu@163.com',
+      at: new Date(Date.now() - 60_000).toISOString(),
+      parents: 1,
+      refs: ['HEAD -> main', 'tag: round-2'],
+      subject: 'second round: tighten the parser',
+      files: 3,
+      added: 12,
+      deleted: 4,
+      binary: false,
+    },
+    {
+      sha: 'b'.repeat(40),
+      short: 'bbbbbbb',
+      author: 'Someone Else',
+      email: 'other@example.com',
+      at: new Date(Date.now() - 3 * 3_600_000).toISOString(),
+      parents: 2,
+      refs: [],
+      subject: 'first round: read the session log',
+      files: 1,
+      added: 5,
+      deleted: 0,
+      binary: false,
+    },
   ],
 }
 const COMMIT_FILES = {
@@ -968,6 +994,10 @@ const viewProps = {
       'history.empty': '这个仓库还没有提交',
       'history.noFiles': '这个提交没有可显示的文件',
       'history.filter': '搜索提交…',
+      'history.newestFirst': '从晚到早',
+      'history.oldestFirst': '从早到晚',
+      'history.files': '{count} 个文件',
+      'history.merge': '合并',
       'files.mode': '显示方式',
       'files.mode.preview': '预览',
       'files.mode.split': '并排',
@@ -1313,6 +1343,50 @@ check('the history column reads the repository', requests.some(entry => entry.ur
 check('one row per commit, newest first', JSON.stringify(commitRows().map(row => row.props['data-commit-short'])) === JSON.stringify(['a1b2c3d', 'bbbbbbb']), JSON.stringify(commitRows().map(row => row.props['data-commit-short'])))
 check('a row shows what the commit says', textOf(commitRows()[0]).includes('tighten the parser'), textOf(commitRows()[0]))
 check('and names its own id', textOf(commitRows()[0]).includes('a1b2c3d'), textOf(commitRows()[0]))
+/* Everything a commit row can honestly carry, from the one `git log` the list
+ * read: the author, the decorations git prints, whether it is a merge, and how
+ * much it changed. */
+check('a row names its author', textOf(commitRows()[0]).includes('hexiaoyu'), textOf(commitRows()[0]))
+check('a row shows the branch and tag pointing at it', textOf(commitRows()[0]).includes('HEAD -> main') && textOf(commitRows()[0]).includes('tag: round-2'), textOf(commitRows()[0]))
+check('a row counts what it changed', textOf(commitRows()[0]).includes('3 个文件') && textOf(commitRows()[0]).includes('+12') && textOf(commitRows()[0]).includes('−4'), textOf(commitRows()[0]))
+check('a merge says so', textOf(commitRows()[1]).includes('合并'), textOf(commitRows()[1]))
+check('the hover text carries what the row cannot fit', String(commitRows()[0].props.title).includes('he.xiaoyu@163.com') && String(commitRows()[0].props.title).includes('main'), JSON.stringify(commitRows()[0].props.title))
+
+/* From early to late, or late to early — the reader's choice, remembered. */
+const orderButton = () => findAll(tree, node => node.props?.['data-dsh-diff-order'] !== undefined)[0]
+check('the order control starts at newest-first', orderButton().props['data-dsh-diff-order'] === 'new', JSON.stringify(orderButton().props['data-dsh-diff-order']))
+orderButton().props.onClick()
+tree = await rerender(viewElement())
+check('flipping it shows the oldest first', JSON.stringify(commitRows().map(row => row.props['data-commit-short'])) === JSON.stringify(['bbbbbbb', 'a1b2c3d']), JSON.stringify(commitRows().map(row => row.props['data-commit-short'])))
+check('and the choice is remembered', storage.get('dsh-diff-view.historyOrder') === 'old', String(storage.get('dsh-diff-view.historyOrder')))
+check('the control reports itself pressed', findAll(tree, node => node.props?.['data-dsh-diff-order'] !== undefined)[0].props['aria-pressed'] === true)
+/* The working-tree row stays FIRST in both orders: it is the axis, not a commit. */
+check('the working tree stays on top whichever way the commits run', findAll(tree, node => node.props?.['data-dsh-diff-worktree'] !== undefined).length === 1, textOf(tree))
+findAll(tree, node => node.props?.['data-dsh-diff-order'] !== undefined)[0].props.onClick()
+tree = await rerender(viewElement())
+storage.delete('dsh-diff-view.historyOrder')
+
+/* A Host half that has not reloaded yet answers the OLD commit shape (no refs,
+ * no counts, no parents). The browser half must render it rather than crash:
+ * the two halves reload independently. */
+const oldShapeHistory = {
+  ok: true,
+  repo: 'F:/ws',
+  cwd: 'F:/ws',
+  more: false,
+  commits: [{ sha: COMMIT_SHA, short: 'a1b2c3d', author: 'hexiaoyu', at: new Date().toISOString(), subject: 'from an older host half' }],
+}
+responses.set(HISTORY_URL, oldShapeHistory)
+const oldShapeController = registrations[0].options.inject('sess-1').controller
+await oldShapeController.readHistory('sess-1')
+tree = await rerender(viewElement())
+check('a commit without decorations or counts still renders', textOf(tree).includes('from an older host half'), textOf(tree))
+check('and it is listed as a commit', commitRows().length === 1, JSON.stringify(commitRows().map(row => row.props['data-commit-short'])))
+/* Back to the fixture the assertions below were written against. */
+responses.set(HISTORY_URL, HISTORY)
+await oldShapeController.readHistory('sess-1')
+tree = await rerender(viewElement())
+
 /* The row that keeps this tab useful when the tree is clean after a per-round
  * commit: the working tree is an entry of the list, not an empty panel. */
 check('the working tree is the first row', worktreeRow() !== undefined && textOf(worktreeRow()).includes('工作区'), textOf(worktreeRow()))

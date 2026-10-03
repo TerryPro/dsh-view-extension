@@ -78,6 +78,15 @@ window.__ModuleLoader__.load({
 		 * it, after an action, and when they ask for one.
 		 */
 		var AUTO_KEY = NAMESPACE + '.auto';
+		/**
+		 * Which end of the history the list starts from.
+		 *
+		 * The page itself is always READ newest-first, because that is what `git log`
+		 * answers and what a reader usually wants; this choice reverses the page on
+		 * screen. It is therefore "early to late WITHIN the loaded page", and the
+		 * label says so rather than pretending the whole history was re-read.
+		 */
+		var ORDER_KEY = NAMESPACE + '.historyOrder';
 		/** Largest number of diff lines drawn for one file. */
 		var MAX_RENDERED_LINES = 4000;
 		/** Where the wrap preference lives (per browser, like the shell's own). */
@@ -275,6 +284,10 @@ window.__ModuleLoader__.load({
 				'history.empty': '这个仓库还没有提交',
 				'history.noFiles': '这个提交没有可显示的文件',
 				'history.filter': '搜索提交…',
+				'history.newestFirst': '从晚到早',
+				'history.oldestFirst': '从早到晚',
+				'history.files': '{count} 个文件',
+				'history.merge': '合并',
 				'layout.leftWidth': '调整左栏宽度',
 				'layout.leftSplit': '调整历史与文件的高度',
 				'list.empty': '当前范围没有改动',
@@ -291,8 +304,8 @@ window.__ModuleLoader__.load({
 				'diff.truncated': '仅显示前 {count} 行',
 				'diff.coarse': '文件过大，已按整文件替换显示',
 				'diff.none': '没有可显示的差异内容',
-				'notice.notRepo': '当前会话目录不在 git 仓库中，可切换到「本次会话」查看 agent 的改动',
-				'notice.noGit': '这台机器上没有找到 git，只能查看「本次会话」的改动',
+				'notice.notRepo': '当前会话目录不是 git 仓库，所以没有历史可看（逐轮页签仍可按轮次查看改动）',
+				'notice.noGit': '这台机器上没有找到 git，所以没有历史和大小对比',
 				'notice.noSession': '本次会话还没有记录到文件改动',
 				'status.modified': '修改',
 				'status.added': '新增',
@@ -419,6 +432,10 @@ window.__ModuleLoader__.load({
 				'history.empty': 'This repository has no commits yet',
 				'history.noFiles': 'This commit has no displayable file',
 				'history.filter': 'Search commits…',
+				'history.newestFirst': 'Newest first',
+				'history.oldestFirst': 'Oldest first',
+				'history.files': '{count} files',
+				'history.merge': 'Merge',
 				'layout.leftWidth': 'Resize the left column',
 				'layout.leftSplit': 'Resize history against files',
 				'list.emptyFiltered': 'No file matches the filter',
@@ -434,8 +451,8 @@ window.__ModuleLoader__.load({
 				'diff.truncated': 'Showing the first {count} lines only',
 				'diff.coarse': 'File too large: shown as a whole-file replacement',
 				'diff.none': 'Nothing to show',
-				'notice.notRepo': 'This session’s directory is not inside a git repository; switch to “This session” to see the agent’s changes',
-				'notice.noGit': 'git was not found on this machine; only “This session” changes are available',
+				'notice.notRepo': 'This session’s directory is not a git repository, so there is no history to browse (the per-turn tab still lists each round’s changes)',
+				'notice.noGit': 'git was not found on this machine, so there is no history and no size comparison',
 				'notice.noSession': 'No file change has been recorded for this session yet',
 				'status.modified': 'Modified',
 				'status.added': 'Added',
@@ -723,7 +740,14 @@ window.__ModuleLoader__.load({
 			'.dshdv-commitRow:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}',
 			'.dshdv-commitRow[aria-selected="true"]{background:var(--dsw-alias-interactive-bg-active,var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.08)))}',
 			'.dshdv-commitRow:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#3b6cf6);outline-offset:1px}',
-			'.dshdv-commitSubject{width:100%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}',
+			'.dshdv-commitSubject{display:flex;align-items:center;gap:6px;width:100%;min-width:0;font-size:12px}',
+			'.dshdv-commitTitle{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+			/* The decorations git prints for a commit: branch and tag names. */
+			'.dshdv-refChip{flex:none;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 5px;border-radius:var(--dsw-radius-sm,6px);background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06));color:var(--dsw-alias-brand-primary,var(--dsw-alias-link,#4d6bfe));font-size:10px;line-height:15px}',
+			'.dshdv-mergeChip{flex:none;padding:0 5px;border-radius:var(--dsw-radius-sm,6px);background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06));color:var(--dsw-alias-label-tertiary,#8b939e);font-size:10px;line-height:15px}',
+			'.dshdv-commitAuthor{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary,#5b636e)}',
+			'.dshdv-commitStats{display:inline-flex;gap:4px;white-space:nowrap}',
+			'.dshdv-commitBin{color:var(--dsw-alias-label-tertiary,#8b939e)}',
 			'.dshdv-commitMeta{display:flex;align-items:center;gap:6px;min-width:0;color:var(--dsw-alias-label-tertiary,#8b939e);font-size:11px}',
 			'.dshdv-commitSha{font-family:var(--ds-font-family-code,monospace)}',
 			'.dshdv-commitWhen{margin-left:auto;white-space:nowrap}',
@@ -869,6 +893,8 @@ window.__ModuleLoader__.load({
 		var ICON_SPLIT = [['M2.5 3.5h11v9h-11z'], ['M8 3.5v9']];
 		/** Edit: a pencil. */
 		var ICON_PENCIL = [['M3.5 12.5h3l6.4-6.4-3-3-6.4 6.4z'], ['M10.4 2.6 12 1l3 3-1.6 1.6z']];
+		/** Sort order: two arrows pointing opposite ways, whichever end is first. */
+		var ICON_SORT = [['M4.5 3.5v9'], ['M2.2 10.3 4.5 12.5l2.3-2.2'], ['M11.5 12.5v-9'], ['M9.2 5.7 11.5 3.5l2.3 2.2']];
 
 		/* ------------------------------------------------------------------ *
 		 * Small helpers
@@ -1599,8 +1625,28 @@ window.__ModuleLoader__.load({
 					var previous = new Map();
 					for (var at = 0; at < state.history.length; at += 1) previous.set(state.history[at].sha, state.history[at]);
 					var commits = incoming.map(function (entry) {
-						var held = previous.get(entry.sha);
-						return held !== undefined && held.subject === entry.subject && held.short === entry.short ? held : entry;
+						/* Tolerate a Host that answers the OLD shape: the browser half and the
+						 * host half reload independently, so a row must not crash because the
+						 * commit it describes arrived without its decorations or counts. */
+						var shaped = {
+							sha: String(entry.sha),
+							short: String(entry.short ?? String(entry.sha).slice(0, 7)),
+							author: String(entry.author ?? ''),
+							email: entry.email === undefined ? '' : String(entry.email),
+							at: String(entry.at ?? ''),
+							subject: String(entry.subject ?? ''),
+							parents: Number.isSafeInteger(entry.parents) ? entry.parents : 1,
+							refs: Array.isArray(entry.refs) ? entry.refs.filter(ref => typeof ref === 'string' && ref !== '') : [],
+							files: Number.isInteger(entry.files) ? entry.files : 0,
+							added: Number.isInteger(entry.added) ? entry.added : 0,
+							deleted: Number.isInteger(entry.deleted) ? entry.deleted : 0,
+							binary: entry.binary === true,
+						};
+						var held = previous.get(shaped.sha);
+						return held !== undefined && held.subject === shaped.subject && held.short === shaped.short
+							&& held.files === shaped.files && held.refs.length === shaped.refs.length
+							? held
+							: shaped;
 					});
 					patch({ historyPhase: 'ready', historyError: null, history: commits, historyMore: result.value.more === true });
 				},
@@ -2760,7 +2806,11 @@ window.__ModuleLoader__.load({
 		function DiffView(props) {
 			var controller = props.controller;
 			var sessionId = props.sessionId;
-			var t = props.t;
+			/* This plugin's own translator, handed in by `inject`. The shell's `t` is
+			 * bound to whatever dictionary that namespace was FIRST registered with, so
+			 * a key added by a later bundle resolves to itself there; ours falls back to
+			 * the copy that shipped with THIS bundle. */
+			var t = props.tr === undefined ? props.t : props.tr;
 			var state = React.useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
 			var wrapState = React.useState(function () { return readPreference(WRAP_KEY, 'wrap') !== 'nowrap'; });
 			var wrap = wrapState[0];
@@ -2793,6 +2843,9 @@ window.__ModuleLoader__.load({
 			});
 			var leftSplit = leftSplitState[0];
 			var setLeftSplit = leftSplitState[1];
+			var orderState = React.useState(function () { return readPreference(ORDER_KEY, 'new') === 'old'; });
+			var oldestFirst = orderState[0];
+			var setOldestFirst = orderState[1];
 			var mainRef = React.useRef(null);
 			var leftRef = React.useRef(null);
 			var leftWidthRef = React.useRef(leftWidth);
@@ -2889,13 +2942,16 @@ window.__ModuleLoader__.load({
 			var listPhase = inCommit ? state.filesPhase : state.phase;
 			var listError = inCommit ? state.filesError : state.error;
 			var needle = filter.trim().toLowerCase();
-			var commits = needle === ''
+			var matched = needle === ''
 				? state.history
 				: state.history.filter(function (entry) {
 					return entry.subject.toLowerCase().indexOf(needle) !== -1
 						|| entry.sha.indexOf(needle) === 0
-						|| entry.short.indexOf(needle) === 0;
+						|| entry.short.indexOf(needle) === 0
+						|| String(entry.author).toLowerCase().indexOf(needle) !== -1;
 				});
+			/* One page of history, shown from whichever end the reader chose. */
+			var commits = oldestFirst ? matched.slice().reverse() : matched;
 			var visible = needle === '' || inCommit
 				? listed
 				: listed.filter(function (file) {
@@ -2984,6 +3040,16 @@ window.__ModuleLoader__.load({
 					historyRows.push(h('p', { key: 'empty', className: 'dshdv-note' }, t(needle === '' ? 'history.empty' : 'list.emptyFiltered')));
 				} else {
 					historyRows = historyRows.concat(commits.map(function (entry) {
+						/* What a commit row can honestly carry: what it says, who wrote it,
+						 * when, which branches or tags point at it, whether it is a merge,
+						 * and how much it changed. All of it comes from the one `git log`
+						 * the list read — no extra process per row. */
+						var hover = [
+							entry.subject,
+							entry.author + (entry.email === undefined || entry.email === '' ? '' : ' <' + entry.email + '>'),
+							absoluteTime(entry.at),
+							entry.refs.length === 0 ? '' : entry.refs.join(', '),
+						].filter(part => part !== '').join('\n');
 						return h('button', {
 							key: entry.sha,
 							type: 'button',
@@ -2991,12 +3057,23 @@ window.__ModuleLoader__.load({
 							'data-commit': entry.sha,
 							'data-commit-short': entry.short,
 							'aria-selected': entry.sha === state.selectedSha,
-							title: entry.subject,
+							title: hover,
 							onClick: function () { selectCommit(entry.sha); },
 						},
-							h('span', { className: 'dshdv-commitSubject' }, entry.subject),
+							h('span', { className: 'dshdv-commitSubject' },
+								entry.refs.length === 0 ? null : entry.refs.map(function (ref) {
+									return h('span', { key: ref, className: 'dshdv-refChip' }, ref);
+								}),
+								h('span', { className: 'dshdv-commitTitle' }, entry.subject)),
 							h('span', { className: 'dshdv-commitMeta' },
 								h('span', { className: 'dshdv-commitSha' }, entry.short),
+								entry.parents > 1 ? h('span', { className: 'dshdv-mergeChip' }, t('history.merge')) : null,
+								h('span', { className: 'dshdv-commitAuthor' }, entry.author),
+								entry.files === 0 ? null : h('span', { className: 'dshdv-commitStats' },
+									format(t('history.files'), { count: entry.files }),
+									entry.added > 0 ? h('span', { className: 'dshdv-add' }, '+' + String(entry.added)) : null,
+									entry.deleted > 0 ? h('span', { className: 'dshdv-del' }, '−' + String(entry.deleted)) : null,
+									entry.binary === true ? h('span', { className: 'dshdv-commitBin' }, 'bin') : null),
 								h('span', { className: 'dshdv-commitWhen' }, shellTime(t, entry.at))));
 					}));
 				}
@@ -3222,6 +3299,18 @@ window.__ModuleLoader__.load({
 							onClick: function () { setFilter(''); },
 						}, '×')),
 					h('button', {
+						type: 'button', className: 'dshdv-btn',
+						title: oldestFirst ? t('history.newestFirst') : t('history.oldestFirst'),
+						'aria-label': t('history.label'),
+						'aria-pressed': oldestFirst,
+						'data-dsh-diff-order': oldestFirst ? 'old' : 'new',
+						onClick: function () {
+							markActive();
+							setOldestFirst(!oldestFirst);
+							writePreference(ORDER_KEY, !oldestFirst ? 'old' : 'new');
+						},
+					}, icon(ICON_SORT)),
+					h('button', {
 						type: 'button', className: 'dshdv-btn', 'aria-pressed': auto,
 						title: auto ? t('action.auto.on') : t('action.auto.off'), 'aria-label': t('action.auto'),
 						'data-dsh-diff-auto': auto ? 'on' : 'off',
@@ -3377,6 +3466,12 @@ window.__ModuleLoader__.load({
 		 * naming the same moment agree. Without the primitive, the absolute clock is
 		 * used rather than inventing a phrasing.
 		 */
+		/** The absolute time a commit carries, for the row's hover text. */
+		function absoluteTime(at) {
+			var parsed = new Date(at);
+			return Number.isNaN(parsed.getTime()) ? String(at) : parsed.toLocaleString();
+		}
+
 		function shellTime(t, time) {
 			if (typeof time !== 'number' || time <= 0) return null;
 			if (ShellrelativeTime !== null) {

@@ -253,6 +253,25 @@ check('the ghosted textarea keeps a visible caret', ...)   // 字形透明但光
 | 行度量 | `padding:5px 10px`、`gap:6px`、`border-radius:var(--dsw-radius-md)`、每级缩进 18px、`scrollbar-gutter:stable`、悬停用 `--dsw-alias-interactive-bg-hover`（全部逐字对齐 FilesBody.module.css） |
 
 保留的自家能力：脏标记（`●` 在行尾与标签上）、每级的 loading/失败/空/截断提示行、多标签与编辑器。
+## 提交行能显示什么，以及排序
+
+`git log` 一次读取（`--numstat` + 自定义 `--pretty`）就能给出这些，所以**每行不额外起进程**：
+
+| 显示 | 来源 |
+|---|---|
+| 主题 | `%s` |
+| 短 id | `%h` |
+| 作者 | `%an`（邮箱在悬停里） |
+| 相对时间 | `%aI`（绝对时间在悬停里） |
+| **分支 / tag 装饰** | `%D` —— `HEAD -> main`、`tag: v1` 以 chip 显示 |
+| **是否合并** | `%P` 的父提交个数 ≥ 2 |
+| **改了哪些、多少** | `--numstat` → `N 个文件 +x −y`，有二进制文件时标 `bin` |
+
+为什么用 `--numstat` 而不是 `--shortstat`：后者的文本是**本地化**的（"3 files changed" 在中文 git 下是另一套词），解析它等于把界面绑死在某个语言上。`--numstat` 是制表符分隔的数字。
+
+**排序**：右侧一个图标按钮在「从晚到早 / 从早到晚」之间切换，选择被记住（`dsh-diff-view.historyOrder`）。诚实说明：分页读到的永远是最新的一页（`git log` 的默认），这个开关**在已加载的这一页内**反向，标签也是这么写的。
+
+顺带修掉一处过时文案：仓库缺失时的提示原本还在劝用户"切换到「本次会话」"，而那个作用域已经删了。
 ## 三栏 + 两条可拖动的分隔条
 
 ```
@@ -403,8 +422,8 @@ dsh plugin add link:F:/deepseek_harness_workspace/dsh-diff-view
 ## 测试
 
 ```bash
-node tools/test-host.mjs      # 170 项：解析器对真实 git 输出、路由行为、会话折叠与兜底、围栏
-node tools/smoke-client.mjs   # 290 项：契约、注册、渲染、交互、失败态
+node tools/test-host.mjs      # 176 项：解析器对真实 git 输出、路由行为、会话折叠与兜底、围栏
+node tools/smoke-client.mjs   # 302 项：契约、注册、渲染、交互、失败态
 npm test                      # 两个都跑
 ```
 
