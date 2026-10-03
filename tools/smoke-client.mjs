@@ -894,6 +894,19 @@ const rootRule = /\.dshdv-root\{([^}]*)\}/u.exec(styles)?.[1] ?? ''
 check('the tab host reserves the live composer height', rootRule.includes('--dshdv-bottom-clearance') && rootRule.includes('var(--dsh-composer-height'), rootRule)
 check('the tab host never scrolls itself', rootRule.includes('overflow:hidden') && rootRule.includes('height:100%'), rootRule)
 check('every inner scroller clears the composer', /\.dshdv-listBody,\.dshdv-scroll,\.dshdv-tvListBody,\.dshdv-tvSaid,\.dshdv-tvFileList\{padding-bottom:var\(--dshdv-bottom-clearance\)\}/u.test(styles), 'clearance rule')
+
+/* The composer is hidden while a NON-conversation view is elected. The rule is
+ * keyed on the elected view's own root, which works because the shell's view host
+ * renders one view at a time — so this guard has two halves that must keep
+ * agreeing: the selectors in the stylesheet, and the attributes on the roots. A
+ * rename on either side would silently stop hiding the composer, which is exactly
+ * the kind of failure nobody notices until a reader cannot send a message. */
+const hideRule = /\[data-conversation-scroll\]:has\(\[([^\]]+)\]\)>\[data-composer-seat\](?=,|\{)/gu
+const hiddenBy = [...styles.matchAll(/\[data-conversation-scroll\]:has\(\[([^\]]+)\]\)>\[data-composer-seat\]/gu)].map(match => match[1])
+check('the composer is hidden in the changes tab', hiddenBy.includes('data-dsh-diff-view'), JSON.stringify(hiddenBy))
+check('the composer is hidden in the turn tab', hiddenBy.includes('data-dsh-diff-turns'), JSON.stringify(hiddenBy))
+check('the composer is hidden in every full-bleed view', hiddenBy.includes('data-conversation-composer-overlay'), JSON.stringify(hiddenBy))
+check('the hiding rule is display:none, not a remount', /\[data-conversation-scroll\]:has\(\[data-conversation-composer-overlay\]\)>\[data-composer-seat\]\{display:none\}/u.test(styles), 'hide rule')
 check('the bundle asks the page for the shell primitives', primitivesAsked === true, 'the primitives module was required at load')
 
 console.log('\nthe auto-refresh cadence')
@@ -1280,6 +1293,8 @@ const turnFileRows = () => findAll(turnTree, node => node.type === 'button' && n
 
 check('the turn browser reads its own route', requests.some(entry => entry.url === TURNS_LIST), JSON.stringify(requests.map(entry => entry.url)))
 check('the turn tab takes the composer overlay contract', findAll(turnTree, node => node.props?.['data-conversation-composer-overlay'] !== undefined).length === 1, String(findAll(turnTree, node => node.props?.['data-conversation-composer-overlay'] !== undefined).length))
+/* The attribute the hiding rule keys on must be on the SAME root the rule names. */
+check('the turn tab is the root the hiding rule names', findAll(turnTree, node => node.props?.['data-dsh-diff-turns'] !== undefined).length === 1, String(findAll(turnTree, node => node.props?.['data-dsh-diff-turns'] !== undefined).length))
 check('it lists one row per turn', turnRows().length === 3, JSON.stringify(turnRows().map(row => row.props['data-turn'])))
 check('the first turn is at the top', JSON.stringify(turnRows().map(row => row.props['data-turn'])) === JSON.stringify(['1', '2', '3']), JSON.stringify(turnRows().map(row => row.props['data-turn'])))
 check('a running turn is marked', textOf(turnRows()[2]).includes('进行中'), textOf(turnRows()[2]))

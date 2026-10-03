@@ -118,6 +118,24 @@
 └──────────────────────────┴───────────────────────────────────────────────┘
 ```
 
+### 输入框只在「对话」页签出现
+
+外壳把 composer 座位渲染成**当前页签的兄弟节点**，所以默认它跟着读者走进任何页签 —— 在 diff / 逐轮 里既没有可发送的对象，又吃掉整高面板的底部。外壳**没有**按页签隐藏的开关（`DefaultConversationViews` 的注释明确说输入框留在 `ConversationRoot`，轨迹视图更是主动加 overlay 契约让输入框浮在自己上面）。
+
+但外壳保证了这条规则需要的信号：视图宿主**同一时刻只渲染一个页签**（`renderSlot('conversation.view', …, { only: viewId })`），所以"滚动体里出现了哪个页签的根节点"就等于"当前选中的是哪个页签"。于是：
+
+```css
+[data-conversation-scroll]:has([data-dsh-diff-view])>[data-composer-seat],
+[data-conversation-scroll]:has([data-dsh-diff-turns])>[data-composer-seat],
+[data-conversation-scroll]:has([data-conversation-composer-overlay])>[data-composer-seat]{display:none}
+```
+
+- 前两条是**本插件自己的两个页签**（用它们各自的根节点标记，改名就会失效——所以测试把"选择器里的属性"和"根节点上的属性"两半都钉住了）；
+- 第三条覆盖**任何**取用外壳 overlay 契约的全高视图（轨迹视图就是），语义是"自己拥有整块面板的视图不携带对话的输入框"；
+- 用 `display:none` 而不是卸载：DOM 不动、草稿不丢，切回对话页签规则的匹配立刻消失。
+
+**代价**：在我这两个页签里**不能直接发消息**（这正是"限定到会话视图"的字面含义）。想要只影响本插件两个页签、不动轨迹视图，删掉第三条即可。
+
 ### 输入框为什么"贴在"面板底部
 
 外壳里输入框**不是对话页签的一部分**，而是所有页签的兄弟节点（`ConversationContent` 在同一个 `scrollBody` 里渲染 `<Views/>` 与 composer 座位，active 阶段座位是 `position:sticky;bottom:0`）。但对**自带滚动条的全高视图**（轨迹、以及本插件的两个页签），外壳提供了开关 `data-conversation-composer-overlay`：加上它，会话的滚动体变成裁剪盒，输入框座位改成 `position:absolute;bottom:0` **浮在视图底部**；同时视图必须自己让出底部空间 —— 外壳把座位实时高度发布为 `--dsh-composer-height`。
@@ -213,7 +231,7 @@ dsh plugin add link:F:/deepseek_harness_workspace/dsh-diff-view
 
 ```bash
 node tools/test-host.mjs      # 127 项：解析器对真实 git 输出、路由行为、会话折叠与兜底、围栏
-node tools/smoke-client.mjs   # 212 项：契约、注册、渲染、交互、失败态
+node tools/smoke-client.mjs   # 217 项：契约、注册、渲染、交互、失败态
 npm test                      # 两个都跑
 ```
 

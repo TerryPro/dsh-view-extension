@@ -319,6 +319,25 @@ window.__ModuleLoader__.load({
 			 * `--dsh-composer-height`, and the view owes it the clearance — see
 			 * `--dshdv-bottom-clearance` below, exactly as `ui-trajectory` does it. */
 			'.dshdv-root{display:flex;flex-direction:column;height:100%;min-height:0;width:100%;box-sizing:border-box;overflow:hidden;color:var(--dsw-alias-label-primary,#1b1f24);background:var(--dsw-alias-bg-layer-1,#fff);font-size:var(--dsh-content-font-size-secondary,13px);line-height:1.5;--dshdv-bottom-clearance:calc(var(--dsh-composer-height, 152px) + 16px)}',
+			/* The composer belongs to the CONVERSATION view, not to every view.
+			 *
+			 * The shell renders the composer seat as a sibling of whichever view is
+			 * elected, so by default it follows the reader into a diff or a turn
+			 * browser — where there is nothing to send to and the seat only eats the
+			 * bottom of a full-height pane. The shell has no per-view switch for that,
+			 * but it guarantees the signal this rule needs: the view host renders ONE
+			 * view at a time (`renderSlot('conversation.view', …, { only: viewId })`),
+			 * so the presence of a view's own root in the scroll body says which view
+			 * is elected. Both of this plugin's roots are listed explicitly, and the
+			 * third clause covers every full-bleed view that takes the shell's own
+			 * composer-overlay contract (the trajectory view does) — a view that owns
+			 * its pane does not carry the conversation's composer.
+			 *
+			 * The seat keeps its DOM: nothing unmounts, the draft survives, and the
+			 * rule stops matching the moment the conversation view is elected again. */
+			'[data-conversation-scroll]:has([data-dsh-diff-view])>[data-composer-seat],'
+				+ '[data-conversation-scroll]:has([data-dsh-diff-turns])>[data-composer-seat],'
+				+ '[data-conversation-scroll]:has([data-conversation-composer-overlay])>[data-composer-seat]{display:none}',
 			'.dshdv-bar{display:flex;align-items:center;gap:8px;padding:6px 12px;border-bottom:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.08));flex:none;min-height:38px;box-sizing:border-box}',
 			'.dshdv-tabs{display:inline-flex;padding:2px;gap:2px;border-radius:var(--dsw-radius-sm,6px);background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}',
 			'.dshdv-tab{border:0;background:transparent;color:var(--dsw-alias-label-secondary,#5b636e);font:inherit;font-size:12px;line-height:18px;padding:3px 10px;border-radius:var(--dsw-radius-sm,6px);cursor:pointer}',
