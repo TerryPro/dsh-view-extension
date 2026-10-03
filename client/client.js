@@ -387,7 +387,12 @@ window.__ModuleLoader__.load({
 			'.dshdv-tvRowTime{flex:none}',
 			'.dshdv-tvTag{flex:none;padding:1px 6px;border-radius:var(--dsw-radius-sm,6px);background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06));color:var(--dsw-alias-label-tertiary,#8b939e);font-size:11px}',
 			'.dshdv-tvMain{display:flex;flex-direction:column;flex:1 1 auto;min-width:0;min-height:0}',
-			'.dshdv-tvSaid{flex:0 1 auto;max-height:52%;overflow-y:auto;padding:12px 16px;border-bottom:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.08))}',
+			/* The right column is a fixed split — the turn's question and answer take
+			 * the upper THIRD, its changed files the lower TWO THIRDS. Fixed rather
+			 * than content-sized on purpose: the reader compares turns by the same
+			 * geometry every time, and a long answer scrolls inside its third instead
+			 * of pushing the file pane off the bottom of the tab. */
+			'.dshdv-tvSaid{flex:0 0 33.3333%;min-height:0;overflow-y:auto;padding:12px 16px;border-bottom:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.08))}',
 			'.dshdv-tvSaidBlock+.dshdv-tvSaidBlock{margin-top:14px}',
 			/* The question is the shell's own user bubble: right-aligned, on
 			 * `--dsw-specific-bubble`, at `--dsw-radius-xl`, sized by the body axis
@@ -437,7 +442,9 @@ window.__ModuleLoader__.load({
 			'.dshdv-mdLink:hover{text-decoration:underline}',
 			'.dshdv-tvEmpty{margin:0;color:var(--dsw-alias-label-tertiary,#8b939e);font-size:var(--dsh-content-font-size-secondary,13px)}',
 			'.dshdv-tvNote{margin:6px 0 0;color:var(--dsw-alias-label-tertiary,#8b939e);font-size:11px}',
-			'.dshdv-tvFiles{display:flex;flex-direction:column;flex:1 1 auto;min-height:0}',
+			/* The lower two thirds: it takes every pixel the answer's third leaves, so
+			 * the two panes always add up to the column exactly. */
+			'.dshdv-tvFiles{display:flex;flex-direction:column;flex:1 1 66.6667%;min-height:0}',
 			'.dshdv-tvFilesHead{display:flex;align-items:center;gap:8px;flex:none;height:32px;padding:0 12px;border-bottom:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.08))}',
 			'.dshdv-tvFilesHead .dshdv-tvLabel{margin:0}',
 			'.dshdv-tvFilesBody{display:flex;flex:1 1 auto;min-height:0;min-width:0}',

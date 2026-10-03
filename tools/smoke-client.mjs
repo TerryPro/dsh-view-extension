@@ -907,6 +907,23 @@ check('the composer is hidden in the changes tab', hiddenBy.includes('data-dsh-d
 check('the composer is hidden in the turn tab', hiddenBy.includes('data-dsh-diff-turns'), JSON.stringify(hiddenBy))
 check('the composer is hidden in every full-bleed view', hiddenBy.includes('data-conversation-composer-overlay'), JSON.stringify(hiddenBy))
 check('the hiding rule is display:none, not a remount', /\[data-conversation-scroll\]:has\(\[data-conversation-composer-overlay\]\)>\[data-composer-seat\]\{display:none\}/u.test(styles), 'hide rule')
+
+/* The turn tab's right column: question and answer over the upper third, changed
+ * files over the lower two thirds. Asserted as a RATIO rather than as two
+ * spellings of `flex`, because the point is the geometry a reader sees. */
+const flexBasisOf = (rule) => {
+  const shorthand = /(?:^|;)flex:([^;]*)/u.exec(rule)?.[1] ?? ''
+  const basis = shorthand.trim().split(/\s+/u).find(part => part.endsWith('%')) ?? ''
+  return Number.parseFloat(basis) || 0
+}
+const saidRule = /\.dshdv-tvSaid\{([^}]*)\}/u.exec(styles)?.[1] ?? ''
+const filesRule = /\.dshdv-tvFiles\{([^}]*)\}/u.exec(styles)?.[1] ?? ''
+const saidBasis = flexBasisOf(saidRule)
+const filesBasis = flexBasisOf(filesRule)
+check('the answer pane takes a third of the column', Math.abs(saidBasis - 100 / 3) < 0.01, `${saidBasis}% — ${saidRule}`)
+check('the files pane takes two thirds of the column', Math.abs(filesBasis - 200 / 3) < 0.01, `${filesBasis}% — ${filesRule}`)
+check('the two panes add up to the column', Math.abs(saidBasis + filesBasis - 100) < 0.01, `${saidBasis} + ${filesBasis}`)
+check('neither pane is content-sized any more', saidRule.includes('max-height') === false && saidRule.includes('flex:0 0'), saidRule)
 check('the bundle asks the page for the shell primitives', primitivesAsked === true, 'the primitives module was required at load')
 
 console.log('\nthe auto-refresh cadence')
