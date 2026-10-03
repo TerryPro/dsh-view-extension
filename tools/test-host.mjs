@@ -365,7 +365,7 @@ async function main() {
   }
   const logger = { info() {}, warn() {} }
   const routes = routesModule.makeRoutes({ ctx, config: {}, logger })
-  equal(routes.map(route => `${route.kind} ${route.path}`), ['exact /api/dsh-diff/files', 'exact /api/dsh-diff/file', 'exact /api/dsh-diff/tree', 'exact /api/dsh-diff/read', 'exact /api/dsh-diff/write', 'exact /api/dsh-diff/raw', 'exact /api/dsh-diff/commits', 'exact /api/dsh-diff/commit-detail', 'exact /api/dsh-diff/turns', 'exact /api/dsh-diff/turn', 'exact /api/dsh-diff/commit'], 'the family mounts its exact routes')
+  equal(routes.map(route => `${route.kind} ${route.path}`), ['exact /api/dsh-diff/files', 'exact /api/dsh-diff/file', 'exact /api/dsh-diff/tree', 'exact /api/dsh-diff/read', 'exact /api/dsh-diff/write', 'exact /api/dsh-diff/raw', 'exact /api/dsh-diff/commits', 'exact /api/dsh-diff/commit-detail', 'exact /api/dsh-diff/file-history', 'exact /api/dsh-diff/status', 'exact /api/dsh-diff/push', 'exact /api/dsh-diff/turns', 'exact /api/dsh-diff/turn', 'exact /api/dsh-diff/commit'], 'the family mounts its exact routes')
   const filesRoute = routes.find(route => route.path === routesModule.ROUTES.files).handler
   const fileRoute = routes.find(route => route.path === routesModule.ROUTES.file).handler
   const treeRoute = routes.find(route => route.path === routesModule.ROUTES.tree).handler
@@ -374,6 +374,9 @@ async function main() {
   const rawRoute = routes.find(route => route.path === routesModule.ROUTES.raw).handler
   const commitsRoute = routes.find(route => route.path === routesModule.ROUTES.commits).handler
   const commitDetailRoute = routes.find(route => route.path === routesModule.ROUTES.commitDetail).handler
+  const fileHistoryRoute = routes.find(route => route.path === routesModule.ROUTES.fileHistory).handler
+  const statusRoute = routes.find(route => route.path === routesModule.ROUTES.status).handler
+  const pushRoute = routes.find(route => route.path === routesModule.ROUTES.push).handler
   const turnsRoute = routes.find(route => route.path === routesModule.ROUTES.turns).handler
   const turnRoute = routes.find(route => route.path === routesModule.ROUTES.turn).handler
 
@@ -629,6 +632,40 @@ async function main() {
   const oldest = rootList.body.commits[rootList.body.commits.length - 1]
   const rootDetail = await callRoute(commitDetailRoute, `/api/dsh-diff/commit-detail?sessionId=fixture&sha=${oldest.sha}`)
   ok(rootDetail.status === 200 && rootDetail.body.files.length >= 1, 'the first commit of the repository lists its files too', JSON.stringify(rootDetail.body?.files?.length))
+
+  // -- the branch, the file's own history, and the push ---------------------
+  console.log('# branch, file history, push')
+  const repoStatus = await callRoute(statusRoute, '/api/dsh-diff/status?sessionId=fixture')
+  ok(repoStatus.status === 200, 'the repository status answers', JSON.stringify(repoStatus.body?.error))
+  ok(typeof repoStatus.body?.branch === 'string' && repoStatus.body.branch !== '', 'it names the branch', JSON.stringify(repoStatus.body?.branch))
+  ok(repoStatus.body?.detached === false, 'and says the HEAD is attached', String(repoStatus.body?.detached))
+  /* No upstream in a fixture repository: that is a state worth reporting, not an
+   * error — it is the state a reader most needs told about. */
+  ok(repoStatus.body?.upstream === null || typeof repoStatus.body.upstream === 'string', 'and reports the upstream, or its absence', JSON.stringify(repoStatus.body?.upstream))
+  ok(Number.isInteger(repoStatus.body?.ahead) && Number.isInteger(repoStatus.body?.behind), 'and how far it has drifted', JSON.stringify([repoStatus.body?.ahead, repoStatus.body?.behind]))
+  ok(repoStatus.body?.merging === false && repoStatus.body?.rebasing === false, 'and that nothing is mid-merge', JSON.stringify([repoStatus.body?.merging, repoStatus.body?.rebasing]))
+  ok(repoStatus.body?.unborn === false, 'and that the branch has commits', String(repoStatus.body?.unborn))
+
+  const fileLog = await callRoute(fileHistoryRoute, `/api/dsh-diff/file-history?sessionId=fixture&path=${encodeURIComponent('src/keep.txt')}`)
+  ok(fileLog.status === 200 && Array.isArray(fileLog.body?.commits), 'a file history answers', JSON.stringify(fileLog.body?.error))
+  ok(fileLog.body.commits.length >= 1, 'with the commits that touched it', String(fileLog.body?.commits?.length))
+  ok(fileLog.body.commits.every(entry => entry.sha.length === 40 && typeof entry.subject === 'string'), 'each a full commit', JSON.stringify(fileLog.body.commits.slice(0, 2).map(entry => entry.short)))
+  ok(fileLog.body.commits.some(entry => entry.files >= 1 && entry.added + entry.deleted > 0), 'and counting only that file\'s lines', JSON.stringify(fileLog.body.commits.slice(0, 2).map(entry => [entry.files, entry.added, entry.deleted])))
+  const missingHistory = await callRoute(fileHistoryRoute, `/api/dsh-diff/file-history?sessionId=fixture&path=${encodeURIComponent('nope/nope.txt')}`)
+  ok(missingHistory.status === 200 && missingHistory.body.commits.length === 0, 'a file no commit ever touched has an empty history, not an error', JSON.stringify(missingHistory.body))
+
+  /* The push is exercised against a remote that cannot be reached: what matters is
+   * that git's own words come back rather than a friendly invention. */
+  const pushNotPost = await callRoute(pushRoute, '/api/dsh-diff/push')
+  ok(pushNotPost.status === 405, 'pushing refuses a GET', JSON.stringify(pushNotPost.body))
+  const pushBody = JSON.stringify({ sessionId: 'fixture', branch: 'main', setUpstream: true, remote: 'no-such-remote' })
+  const pushed = await callRoute(pushRoute, '/api/dsh-diff/push', { method: 'POST', body: pushBody })
+  ok(pushed.status === 502 || pushed.status === 200, 'a push answers with a result or a refusal', JSON.stringify(pushed.status))
+  if (pushed.status !== 200) {
+    ok(pushed.body?.error?.code === 'diff/push-failed' && String(pushed.body.error.message).length > 0, 'and a refusal carries git\'s own message', JSON.stringify(pushed.body?.error))
+  } else {
+    ok(pushed.body?.pushed === true, 'and a success says so', JSON.stringify(pushed.body))
+  }
 
   // -- the per-turn browser ------------------------------------------------
   console.log('# turns')

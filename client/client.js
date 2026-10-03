@@ -167,6 +167,10 @@ window.__ModuleLoader__.load({
 		/** The history browser: the commit list, and one commit in full. */
 		var ROUTES_COMMITS = '/api/dsh-diff/commits';
 		var ROUTES_COMMIT_DETAIL = '/api/dsh-diff/commit-detail';
+		/** The branch's status, a file's own history, and the push. */
+		var ROUTES_STATUS = '/api/dsh-diff/status';
+		var ROUTES_FILE_HISTORY = '/api/dsh-diff/file-history';
+		var PUSH_URL = '/api/dsh-diff/push';
 		/** How many commits one page of history holds. */
 		var HISTORY_PAGE = 40;
 
@@ -288,6 +292,21 @@ window.__ModuleLoader__.load({
 				'history.oldestFirst': '从早到晚',
 				'history.files': '{count} 个文件',
 				'history.merge': '合并',
+				'history.fileHistory': '这个文件的历史',
+				'history.noFileHistory': '没有提交改过这个文件',
+				'history.pinned': '第 {revision} 版',
+				'history.current': '回到当前',
+				'status.detached': '游离 HEAD',
+				'status.unborn': '还没有提交',
+				'status.unpublished': '未发布',
+				'status.merging': '合并中',
+				'status.rebasing': '变基中',
+				'push.action': '推送',
+				'push.publish': '发布分支',
+				'push.confirm': '确认推送',
+				'push.confirmPublish': '确认发布',
+				'push.done': '已推送',
+				'push.failed': '推送失败：{detail}',
 				'layout.leftWidth': '调整左栏宽度',
 				'layout.leftSplit': '调整历史与文件的高度',
 				'list.empty': '当前范围没有改动',
@@ -436,6 +455,21 @@ window.__ModuleLoader__.load({
 				'history.oldestFirst': 'Oldest first',
 				'history.files': '{count} files',
 				'history.merge': 'Merge',
+				'history.fileHistory': 'History of this file',
+				'history.noFileHistory': 'No commit ever touched this file',
+				'history.pinned': 'revision {revision}',
+				'history.current': 'Back to current',
+				'status.detached': 'detached HEAD',
+				'status.unborn': 'no commits yet',
+				'status.unpublished': 'not published',
+				'status.merging': 'merging',
+				'status.rebasing': 'rebasing',
+				'push.action': 'Push',
+				'push.publish': 'Publish branch',
+				'push.confirm': 'Confirm push',
+				'push.confirmPublish': 'Confirm publish',
+				'push.done': 'Pushed',
+				'push.failed': 'Push failed: {detail}',
 				'layout.leftWidth': 'Resize the left column',
 				'layout.leftSplit': 'Resize history against files',
 				'list.emptyFiltered': 'No file matches the filter',
@@ -916,6 +950,10 @@ window.__ModuleLoader__.load({
 		var ICON_SPLIT = [['M2.5 3.5h11v9h-11z'], ['M8 3.5v9']];
 		/** Edit: a pencil. */
 		var ICON_PENCIL = [['M3.5 12.5h3l6.4-6.4-3-3-6.4 6.4z'], ['M10.4 2.6 12 1l3 3-1.6 1.6z']];
+		/** A file's own history: a clock with an arrow back. */
+		var ICON_HISTORY = [['M8 4.2v4.1l2.6 1.6'], ['M2.6 8a5.4 5.4 0 1 0 1.7-3.9'], ['M2.4 3.4v3.2h3.2']];
+		/** Back to the current revision: an arrow turning back on itself. */
+		var ICON_BACK = [['M3.5 8.5h9'], ['M6.5 5.5 3.5 8.5l3 3']];
 		/** Sort order: two arrows pointing opposite ways, whichever end is first. */
 		var ICON_SORT = [['M4.5 3.5v9'], ['M2.2 10.3 4.5 12.5l2.3-2.2'], ['M11.5 12.5v-9'], ['M9.2 5.7 11.5 3.5l2.3 2.2']];
 
@@ -1072,6 +1110,19 @@ window.__ModuleLoader__.load({
 				commitFiles: [],
 				filesPhase: 'idle',
 				filesError: null,
+				/** The branch's standing: branch, upstream, drift, in-progress merge. */
+				repoStatus: null,
+				/** The selected file's own history, and whether it is on screen. */
+				fileHistory: [],
+				fileHistoryFor: null,
+				fileHistoryPhase: 'idle',
+				fileHistoryError: null,
+				showFileHistory: false,
+				/** The revision the selected file is pinned to, if any. */
+				filePinned: null,
+				/** The push button: idle, armed, in flight, or reporting. */
+				pushPhase: 'idle',
+				pushNote: null,
 			};
 		}
 
@@ -1294,6 +1345,14 @@ window.__ModuleLoader__.load({
 			return ROUTES_COMMITS + '?sessionId=' + encodeURIComponent(sessionId) + '&limit=' + String(HISTORY_PAGE);
 		}
 
+		function statusUrl(sessionId) {
+			return ROUTES_STATUS + '?sessionId=' + encodeURIComponent(sessionId);
+		}
+
+		function fileHistoryUrl(sessionId, path) {
+			return ROUTES_FILE_HISTORY + '?sessionId=' + encodeURIComponent(sessionId) + '&path=' + encodeURIComponent(path);
+		}
+
 		function commitUrl(sessionId, sha) {
 			return ROUTES_COMMIT_DETAIL + '?sessionId=' + encodeURIComponent(sessionId) + '&sha=' + encodeURIComponent(sha);
 		}
@@ -1320,6 +1379,9 @@ window.__ModuleLoader__.load({
 			/** One generation per history axis: the commit list and one commit's files. */
 			var historyGeneration = 0;
 			var commitGeneration = 0;
+			/** One generation per new axis: the repository's status, a file's history. */
+			var statusGeneration = 0;
+			var fileHistoryGeneration = 0;
 			/**
 			 * Mount epoch. `reset()` advances it, so a read that was in flight
 			 * when the view unmounted cannot write its answer into the state a
@@ -1672,6 +1734,157 @@ window.__ModuleLoader__.load({
 							: shaped;
 					});
 					patch({ historyPhase: 'ready', historyError: null, history: commits, historyMore: result.value.more === true });
+				},
+
+				/** Read where the repository stands: branch, upstream, drift. */
+				readStatus: async function (sessionId) {
+					var current = (statusGeneration += 1);
+					var started = epoch;
+					var result;
+					try {
+						result = await readJson(statusUrl(sessionId), undefined);
+					} catch (error) {
+						if (current !== statusGeneration || started !== epoch) return;
+						patch({ repoStatus: null });
+						return;
+					}
+					if (current !== statusGeneration || started !== epoch) return;
+					patch({ repoStatus: result.failed !== undefined ? null : result.value });
+				},
+
+				/**
+				 * Read the commits that touched one file.
+				 *
+				 * `--follow` on the Host side means a file that was renamed here keeps the
+				 * history of the name it used to have, which is the history a reader is
+				 * after.
+				 */
+				readFileHistory: async function (sessionId, path) {
+					var current = (fileHistoryGeneration += 1);
+					var started = epoch;
+					patch({ fileHistoryFor: path, fileHistoryPhase: 'loading', fileHistory: [], fileHistoryError: null });
+					var result;
+					try {
+						result = await readJson(fileHistoryUrl(sessionId, path), undefined);
+					} catch (error) {
+						if (current !== fileHistoryGeneration || started !== epoch) return;
+						patch({ fileHistoryPhase: 'error', fileHistoryError: 'error.generic' });
+						return;
+					}
+					if (current !== fileHistoryGeneration || started !== epoch) return;
+					if (result.failed !== undefined) {
+						patch({ fileHistoryPhase: 'error', fileHistoryError: result.failed });
+						return;
+					}
+					patch({
+						fileHistoryPhase: 'ready',
+						fileHistory: Array.isArray(result.value.commits) ? result.value.commits : [],
+					});
+				},
+
+				/** Show or hide the selected file's own history. */
+				toggleFileHistory: function () {
+					patch({ showFileHistory: !state.showFileHistory });
+				},
+
+				/**
+				 * Pin the selected file to one of its older revisions.
+				 *
+				 * The diff is read in that commit's scope, and the pin is remembered so the
+				 * header can say which revision is on screen and offer the way back. The
+				 * browsed COMMIT does not move: this is the same file, earlier.
+				 */
+				selectFileRevision: async function (sessionId, sha) {
+					var path = state.selected;
+					if (path === null) return;
+					var current = (diffGeneration += 1);
+					var started = epoch;
+					var recent = state.fileHistory.find(function (entry) { return entry.sha === sha; });
+					patch({
+						filePinned: { sha: sha, short: recent === undefined ? String(sha).slice(0, 7) : recent.short },
+						/* Picking a revision MEANS "show me it": leaving the history list on
+						 * screen would hide the very comparison the reader just asked for.
+						 * The pin in the header is what says which revision is showing and
+						 * how to come back. */
+						showFileHistory: false,
+						diffPhase: 'loading',
+						diffError: null,
+					});
+					var result;
+					try {
+						result = await readJson(fileUrl('commit', sessionId, path, sha), undefined);
+					} catch (error) {
+						if (current !== diffGeneration || started !== epoch) return;
+						patch({ diffPhase: 'error', diffError: 'error.generic', diff: null, diffPath: undefined });
+						return;
+					}
+					if (current !== diffGeneration || started !== epoch) return;
+					if (result.failed !== undefined) {
+						patch({ diffPhase: 'error', diffError: result.failed, diff: null, diffPath: undefined });
+						return;
+					}
+					patch({ diffPhase: 'ready', diffPath: path, diff: result.value, diffError: null });
+				},
+
+				/** Drop the pin and read the file as it is now, in whatever scope is selected. */
+				clearFilePin: function (sessionId) {
+					patch({ filePinned: null });
+					if (state.selected === null) return undefined;
+					return controller.select(sessionId, state.selected);
+				},
+
+				/**
+				 * Push the branch.
+				 *
+				 * Two presses like the checkpoint, and for the same reason: this is the one
+				 * action here that leaves the machine. A branch with no upstream is
+				 * PUBLISHED rather than pushed, which the armed label says.
+				 */
+				armPush: function () {
+					patch({ pushPhase: 'confirm', pushNote: null });
+				},
+
+				cancelPush: function () {
+					if (state.pushPhase !== 'confirm') return;
+					patch({ pushPhase: 'idle' });
+				},
+
+				push: async function (sessionId) {
+					if (state.pushPhase === 'busy') return;
+					var status = state.repoStatus;
+					patch({ pushPhase: 'busy', pushNote: null });
+					var payload = { sessionId: sessionId };
+					if (status !== null && status.branch !== null) payload.branch = status.branch;
+					if (status !== null && (status.upstream === null || status.upstream === undefined)) payload.setUpstream = true;
+					var answer;
+					try {
+						var response = await fetch(PUSH_URL, {
+							method: 'POST',
+							credentials: 'same-origin',
+							headers: { 'content-type': 'application/json' },
+							body: JSON.stringify(payload),
+						});
+						var body = null;
+						try { body = await response.json(); } catch (error) { body = null; }
+						answer = { ok: response.ok && body !== null && body.ok === true, status: response.status, body: body };
+					} catch (error) {
+						answer = { ok: false, status: 0, body: null };
+					}
+					if (answer.ok !== true) {
+						var detail = answer.body !== null && answer.body !== undefined && answer.body.error !== undefined
+							? String(answer.body.error.message ?? '')
+							: '';
+						patch({
+							pushPhase: 'error',
+							/* Git's own words, verbatim: an unreachable remote and a missing
+							 * credential need different fixes, and only git knows which. */
+							pushNote: detail === '' ? { key: 'push.failed', values: { detail: String(answer.status) } } : { key: 'push.failed', values: { detail: detail } },
+						});
+						return;
+					}
+					patch({ pushPhase: 'done', pushNote: { key: 'push.done', values: {} } });
+					await controller.readStatus(sessionId);
+					await controller.readHistory(sessionId);
 				},
 
 				/** Show the working tree again: the uncommitted files, not a commit. */
@@ -2893,6 +3106,7 @@ window.__ModuleLoader__.load({
 			React.useEffect(function () {
 				void controller.load(sessionId);
 				void controller.readHistory(sessionId);
+				void controller.readStatus(sessionId);
 				return function () {
 					controller.reset();
 				};
@@ -3183,6 +3397,45 @@ window.__ModuleLoader__.load({
 					rows: listPhase === 'ready' && listed.length > 0,
 					status: filesBody,
 				}));
+			/* An armed push disarms itself, like the checkpoint button: publishing is a
+			 * decision, and a decision the reader has walked away from is not one. */
+			React.useEffect(function () {
+				if (state.pushPhase !== 'confirm') return undefined;
+				var timer = window.setTimeout(function () { controller.cancelPush(); }, 4000);
+				return function () { window.clearTimeout(timer); };
+			}, [controller, state.pushPhase]);
+
+			/* The branch's standing, and the push that publishes it: shown only when
+			 * there is something to say — ahead of the upstream, or no upstream at all. */
+			var repoStatus = state.repoStatus;
+			var unpushed = repoStatus !== null && (repoStatus.upstream === null || repoStatus.ahead > 0);
+			var branchStrip = repoStatus === null ? null : h('span', { className: 'dshdv-summary', 'data-dsh-diff-branch': '' },
+				h('span', { className: 'dshdv-commitSha' }, repoStatus.detached === true ? t('status.detached') : repoStatus.branch),
+				repoStatus.unborn === true ? h('span', null, t('status.unborn')) : null,
+				repoStatus.upstream === null && repoStatus.unborn !== true ? h('span', { className: 'dshdv-commitBin' }, t('status.unpublished')) : null,
+				repoStatus.ahead > 0 ? h('span', { className: 'dshdv-add' }, '↑' + String(repoStatus.ahead)) : null,
+				repoStatus.behind > 0 ? h('span', { className: 'dshdv-del' }, '↓' + String(repoStatus.behind)) : null,
+				repoStatus.merging === true ? h('span', { className: 'dshdv-mergeChip' }, t('status.merging')) : null,
+				repoStatus.rebasing === true ? h('span', { className: 'dshdv-mergeChip' }, t('status.rebasing')) : null,
+				unpushed ? h('button', {
+					type: 'button',
+					className: 'dshdv-btn',
+					'data-dsh-diff-push': state.pushPhase,
+					disabled: state.pushPhase === 'busy',
+					title: repoStatus.upstream === null ? t('push.publish') : t('push.action'),
+					'aria-label': repoStatus.upstream === null ? t('push.publish') : t('push.action'),
+					onClick: function () {
+						markActive();
+						if (state.pushPhase === 'confirm') {
+							void controller.push(sessionId);
+							return;
+						}
+						controller.armPush();
+					},
+				}, state.pushPhase === 'busy' ? '…' : state.pushPhase === 'confirm'
+					? t(repoStatus.upstream === null ? 'push.confirmPublish' : 'push.confirm')
+					: t(repoStatus.upstream === null ? 'push.publish' : 'push.action')) : null);
+
 			/**
 			 * The detail pane: the selected file's comparison behind its header.
 			 *
@@ -3193,7 +3446,50 @@ window.__ModuleLoader__.load({
 			 * that row — which is exactly the bug this replaced.
 			 */
 			var detailBody;
-			if (selectedFile === undefined) {
+			if (selectedFile !== undefined && state.showFileHistory) {
+				/* The selected file's own history, in place of its comparison: the reader
+				 * asked "what changed this file", and picking an entry pins the pane to
+				 * that revision (the file, earlier — not a different file). */
+				var historyRowsForFile = state.fileHistoryPhase === 'loading'
+					? h('div', { className: 'dshdv-status' }, h('p', null, t('list.loading')))
+					: state.fileHistoryPhase === 'error'
+						? h('div', { className: 'dshdv-status' },
+							h('p', null, t(state.fileHistoryError === null ? 'error.generic' : state.fileHistoryError)),
+							h('button', {
+								type: 'button', className: 'dshdv-btn',
+								onClick: function () { void controller.readFileHistory(sessionId, selectedFile.path); },
+							}, t('error.retry')))
+						: state.fileHistory.length === 0
+							? h('div', { className: 'dshdv-status' }, h('p', null, t('history.noFileHistory')))
+							: state.fileHistory.map(function (entry) {
+								return h('button', {
+									key: entry.sha,
+									type: 'button',
+									className: 'dshdv-commitRow',
+									'data-file-revision': entry.short,
+									'aria-selected': state.filePinned !== null && state.filePinned.sha === entry.sha,
+									title: (entry.email === undefined || entry.email === '' ? entry.author : entry.author + ' <' + entry.email + '>') + '\n' + absoluteTime(entry.at),
+									onClick: function () { void controller.selectFileRevision(sessionId, entry.sha); },
+								},
+									h('span', { className: 'dshdv-commitSubject' },
+										h('span', { className: 'dshdv-commitTitle' }, entry.subject)),
+									h('span', { className: 'dshdv-commitMeta' },
+										h('span', { className: 'dshdv-commitSha' }, entry.short),
+										h('span', { className: 'dshdv-commitAuthor' }, entry.author),
+										h('span', { className: 'dshdv-commitStats' },
+											entry.added > 0 ? h('span', { className: 'dshdv-add' }, '+' + String(entry.added)) : null,
+											entry.deleted > 0 ? h('span', { className: 'dshdv-del' }, '−' + String(entry.deleted)) : null),
+										h('span', { className: 'dshdv-commitWhen' }, shellTime(t, entry.at))));
+							});
+				detailBody = [
+					h('div', { key: 'head', className: 'dshdv-head' },
+						h('span', { className: 'dshdv-headPath' }, selectedFile.display || selectedFile.path),
+						h('span', { className: 'dshdv-summary' }, t('history.fileHistory')),
+						state.filePinned === null ? null : h('span', { className: 'dshdv-turnTag' }, format(t('history.pinned'), { revision: state.filePinned.short })),
+						tools),
+					h('div', { key: 'body', className: 'dshdv-scroll', 'data-dsh-diff-file-history-list': '' }, historyRowsForFile),
+				];
+			} else if (selectedFile === undefined) {
 				detailBody = h('div', { className: 'dshdv-status' },
 					h('span', { 'aria-hidden': 'true' }, icon(ICON_EMPTY)),
 					h('p', null, t('diff.empty')));
@@ -3204,6 +3500,28 @@ window.__ModuleLoader__.load({
 					selectedFacts.deleted > 0 ? h('span', { key: 'del', className: 'dshdv-del' }, '−' + selectedFacts.deleted) : null,
 				];
 				var tools = h('span', { className: 'dshdv-headTools' },
+					/* The file's OWN history: what changed this file, and the way back into
+					 * one of those revisions. It sits here rather than in the left column
+					 * because it belongs to the file in front of the reader. */
+					h('button', {
+						type: 'button', className: 'dshdv-btn', 'aria-pressed': state.showFileHistory,
+						title: t('history.fileHistory'), 'aria-label': t('history.fileHistory'),
+						'data-dsh-diff-file-history': state.showFileHistory ? 'on' : 'off',
+						onClick: function () {
+							markActive();
+							controller.toggleFileHistory();
+							if (!state.showFileHistory) void controller.readFileHistory(sessionId, selectedFile.path);
+						},
+					}, icon(ICON_HISTORY)),
+					state.filePinned === null ? null : h('button', {
+						type: 'button', className: 'dshdv-btn',
+						title: t('history.current'), 'aria-label': t('history.current'),
+						'data-dsh-diff-unpin': state.filePinned.short,
+						onClick: function () {
+							markActive();
+							void controller.clearFilePin(sessionId);
+						},
+					}, icon(ICON_BACK)),
 					h('button', {
 						type: 'button', className: 'dshdv-btn', 'aria-pressed': split,
 						title: split ? t('action.unified') : t('action.split'), 'aria-label': t('action.split'),
@@ -3354,6 +3672,7 @@ window.__ModuleLoader__.load({
 								h('span', { className: 'dshdv-add' }, format(t('summary.added'), { count: state.totals.added })),
 								h('span', { className: 'dshdv-del' }, format(t('summary.deleted'), { count: state.totals.deleted })))),
 					h('span', { className: 'dshdv-barSpacer' }),
+					branchStrip,
 					h('span', { className: 'dshdv-filter' },
 						h('input', {
 							type: 'search', value: filter, placeholder: t('history.filter'),
@@ -3431,6 +3750,18 @@ window.__ModuleLoader__.load({
 						'data-phase': state.commitPhase,
 						role: 'status',
 					}, format(t(state.commitNote.key), state.commitNote.values)),
+
+				/* What the push answered — git's own words when it failed, because an
+				 * unreachable remote and a missing credential need different fixes and
+				 * only git knows which one it was. */
+				state.pushNote === null
+					? null
+					: h('p', {
+						className: 'dshdv-note',
+						'data-dsh-diff-push-note': state.pushNote.key,
+						'data-phase': state.pushPhase,
+						role: 'status',
+					}, format(t(state.pushNote.key), state.pushNote.values)),
 
 				h('div', { className: 'dshdv-main', ref: mainRef },
 					h('div', { className: 'dshdv-gitLeft', ref: leftRef }, historyPane, gripH, filesPane),
