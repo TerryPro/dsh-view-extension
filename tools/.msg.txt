@@ -1,19 +1,38 @@
-dsh-diff-view: a button box must fit its label
+dsh-diff-view: only Markdown previews; code is edited, highlighted
 
-`.dshdv-btn` was an ICON button: a fixed `width:28px`. Eleven text labels were
-later put on that same class (预览 / 编辑 / 高亮 / 重试 / 仍然覆盖 ...), so each
-label was squeezed into a one-character column -- the editor head, meant to be
-32px, became a ladder of letters and the path column was squeezed to nothing.
+Narrowing the viewer model to what each type actually has:
 
-The fix is one rule: `width:28px` -> `min-width:28px` + `white-space:nowrap`.
-An icon button still measures 28x28 (16px glyph + 6px padding each side); a text
-button now grows to the word it carries. The head uses `min-height` and its
-status keeps its own width, so a label can no longer dictate the row's height.
+- markdown: preview / side-by-side (source | document) / edit — the one type whose
+  source and rendering are both worth a surface
+- code and text (js, ts, json, yaml, html, css, ...): the highlighted editor and
+  nothing else -- no mode switch to nowhere, no preview frame
+- images, PDFs, office, binary: handed to the shell's previewer, as before
 
-The old tests could not catch this: the harness has no layout engine, so no DOM
-assertion can see text wrap. The guards therefore check the RULES -- the button
-box must not fix a width, the label must not wrap, the head must not be sized by
-its content -- plus one that no header label renders as its own raw dictionary
-key.
+The highlighting is a layer, because the shell has no editable highlighted control
+(its CodeBlock is read-only) and this bundle cannot ship CodeMirror:
 
-293 client checks
+  gutter (clipped window over a translated column)
+  highlight layer (the shell's useCodeHighlighter, one token list per line)
+  textarea with transparent glyphs and a VISIBLE caret
+
+All three follow the textarea's scroll through transforms. The illusion holds only
+while the two layers agree on every metric -- same font shorthand (so a fixed
+19px line box), same padding, white-space: pre, tab-size: 2, wrap="off" -- so one
+source line is one line box however many token spans it carries. Typing never
+waits for a grammar: onInput writes the plain draft straight into the layer and
+the tokens arrive on a 120ms debounce (4000-line cap).
+
+The gutter numbers split('\n') lines, including the empty one a trailing newline
+opens, because the textarea shows that line; the plain path appends a zero-width
+character so <pre> cannot swallow the trailing newline and leave the layer a line
+short.
+
+Since a browser is the only place alignment can be seen, the metric contract
+itself is asserted: both rules must declare the same font/padding/white-space/
+tab-size, the gutter must share the code font and first-line offset, and the
+ghosted textarea must keep a visible caret.
+
+Removed as superseded: the read-only CodeBlock highlight view, the sandboxed HTML
+frame preview and its copy, and the preview/edit predicates.
+
+155 host checks, 302 client checks

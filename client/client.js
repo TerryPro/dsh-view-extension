@@ -188,13 +188,14 @@ window.__ModuleLoader__.load({
 				'files.close': '关闭',
 				'files.modified': '已修改',
 				'files.fileCount': '{count} 个标签',
+				'files.mode': '显示方式',
 				'files.mode.preview': '预览',
+				'files.mode.split': '并排',
 				'files.mode.edit': '编辑',
 				'files.openInShell': '用外壳预览器打开',
 				'files.openFailed': '外壳的预览器现在不可用',
 				'files.download': '下载',
 				'files.foreign': '这个类型不能在这里编辑；浏览请用外壳的预览器',
-				'files.htmlSandbox': '沙箱预览（脚本已禁用）',
 				'list.empty': '当前范围没有改动',
 				'list.emptyFiltered': '没有匹配的文件',
 				'list.loading': '正在读取改动…',
@@ -322,13 +323,14 @@ window.__ModuleLoader__.load({
 				'files.close': 'Close',
 				'files.modified': 'Modified',
 				'files.fileCount': '{count} tabs',
+				'files.mode': 'View',
 				'files.mode.preview': 'Preview',
+				'files.mode.split': 'Side by side',
 				'files.mode.edit': 'Edit',
 				'files.openInShell': 'Open in the shell previewer',
 				'files.openFailed': 'The shell previewer is unavailable right now',
 				'files.download': 'Download',
 				'files.foreign': 'This type cannot be edited here; browse it in the shell previewer',
-				'files.htmlSandbox': 'Sandboxed preview (scripts disabled)',
 				'list.empty': 'No changes in this scope',
 				'list.emptyFiltered': 'No file matches the filter',
 				'list.loading': 'Reading changes…',
@@ -580,18 +582,38 @@ window.__ModuleLoader__.load({
 			'.dshdv-fvStatus{flex:none;white-space:nowrap}',
 			/* The editing surface. An uncontrolled textarea: the draft lives in the
 			 * DOM while typing, so a keystroke costs no render at all; the model only
-			 * learns that the file BECAME dirty. Metrics come from the shell's code
-			 * font so the text sits where a highlighted view would put it. */
-			'.dshdv-fvText{flex:1 1 auto;min-height:0;width:100%;box-sizing:border-box;margin:0;padding:8px 22px 20px;border:0;outline:none;resize:none;background:transparent;color:var(--dsw-alias-label-primary,#1b1f24);font:var(--dsw-font-markdown-code-block,12px/19px var(--ds-font-family-code,monospace));tab-size:2;white-space:pre;overflow:auto}',
+			 * learns that the file BECAME dirty.
+			 *
+			 * METRIC CONTRACT — the textarea and the highlight layer behind it must
+			 * agree to the pixel, or the colors drift away from the glyphs they belong
+			 * to. Both therefore carry the SAME `font` shorthand (which fixes the line
+			 * box at 19px), the same asymmetric padding, `white-space: pre`, the same
+			 * `tab-size`, and `wrap="off"` so one source line is always one visual
+			 * line. Nothing here may be changed for one layer alone. */
+			'.dshdv-fvCode{position:relative;display:flex;flex:1 1 auto;min-height:0;min-width:0;overflow:hidden;background:var(--dsw-alias-markdown-code-block,var(--dsw-alias-bg-layer-2,#fafafa))}',
+			'.dshdv-fvText{position:absolute;inset:0;z-index:2;box-sizing:border-box;margin:0;padding:8px 22px 20px 56px;border:0;outline:none;resize:none;background:transparent;color:var(--dsw-alias-label-primary,#1b1f24);font:var(--dsw-font-markdown-code-block,12px/19px var(--ds-font-family-code,monospace));tab-size:2;white-space:pre;overflow:auto}',
 			'.dshdv-fvText:focus-visible{outline:none}',
-			'.dshdv-fvHighlight{flex:1 1 auto;min-height:0;overflow:auto;padding:8px 0 20px}',
+			/* Colors are painted behind, so the glyphs above must not paint twice. */
+			'.dshdv-fvGhost{color:transparent;caret-color:var(--dsw-alias-label-primary,#1b1f24)}',
+			'.dshdv-fvCodeLayer{position:absolute;top:0;left:0;z-index:1;box-sizing:border-box;min-width:100%;margin:0;padding:8px 22px 20px 56px;pointer-events:none;font:var(--dsw-font-markdown-code-block,12px/19px var(--ds-font-family-code,monospace));tab-size:2;white-space:pre;will-change:transform}',
+			'.dshdv-fvCodeLine{white-space:pre}',
+			/* The gutter is a window over a translated column: it clips, and it is
+			 * opaque, because the code slides underneath it. */
+			'.dshdv-fvGutter{position:absolute;top:0;bottom:0;left:0;z-index:3;width:44px;overflow:hidden;padding:0 8px 0 0;box-sizing:border-box;background:var(--dsw-alias-markdown-code-block,var(--dsw-alias-bg-layer-2,#fafafa));color:var(--dsw-alias-label-tertiary,#8b939e);text-align:right;user-select:none;pointer-events:none}',
+			'.dshdv-fvGutterInner{padding-top:8px;font:var(--dsw-font-markdown-code-block,12px/19px var(--ds-font-family-code,monospace));will-change:transform}',
+			'.dshdv-fvCodeNum{white-space:pre}',
+			/* Markdown side by side: the source on the left, the document on the right. */
+			'.dshdv-fvSplit{display:flex;flex:1 1 auto;min-height:0;min-width:0}',
+			'.dshdv-fvSplitSide{display:flex;flex:1 1 50%;min-width:0;border-right:0.5px solid var(--dsw-alias-border-l1,rgba(0,0,0,.06))}',
+			'.dshdv-fvSplitPreview{flex:1 1 50%;min-width:0;overflow:auto;padding:12px 16px;color:var(--dsw-alias-label-primary,#1b1f24)}',
+			/* One segmented control for Markdown, using the native selected fill. */
+			'.dshdv-fvModes{display:inline-flex;align-items:center;gap:2px;flex:none}',
+			'.dshdv-fvModes .dshdv-btn{padding:0 8px;color:var(--dsw-alias-label-tertiary,#8b939e)}',
+			'.dshdv-fvModes .dshdv-btn[aria-pressed="true"]{background:var(--dsw-alias-interactive-bg-active,var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.08)));color:var(--dsw-alias-label-primary,#1b1f24)}',
 			/* The two previews this pane owns: a Markdown document through the shell's
 			 * renderer, and an HTML document in a frame that cannot run scripts. */
 			'.dshdv-fvPreview{flex:1 1 auto;min-height:0;overflow:auto;padding:12px 16px;color:var(--dsw-alias-label-primary,#1b1f24)}',
 			'.dshdv-fvPreview>*:first-child{margin-top:0}',
-			'.dshdv-fvFrameWrap{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;min-width:0}',
-			'.dshdv-fvFrame{flex:1 1 auto;min-height:0;width:100%;border:0;background:var(--dsw-alias-bg-base,#fff)}',
-			'.dshdv-fvHighlight .dshdv-code{border-radius:0;margin:0}',
 			'.dshdv-fvConflict{display:flex;align-items:center;gap:8px;flex:none;padding:6px 12px;background:var(--dsw-alias-bg-layer-2,rgba(0,0,0,.04));color:var(--dsw-alias-state-warn-primary,#c08a20);font-size:12px}',
 			'.dshdv-add{color:var(--dsw-alias-state-success-primary,#1a7f37)}',
 			'.dshdv-del{color:var(--dsw-alias-state-error-primary,#c0392b)}',
@@ -731,6 +753,8 @@ window.__ModuleLoader__.load({
 		var ICON_SAVE = [['M3.5 3.5h7.2l1.8 1.8v7.2h-9z'], ['M5.8 3.5h4.4v3.1H5.8z'], ['M5.8 9.2h4.4v3.3H5.8z']];
 		/** Hand a file to the shell's own previewer: a box with an arrow leaving it. */
 		var ICON_EXTERNAL = [['M9.5 3.5h3v3'], ['M12.5 3.5 7.5 8.5'], ['M11 9.5v3h-7v-7h3']];
+		/** Syntax colors on/off: the classic "A" over a brush stroke. */
+		var ICON_HIGHLIGHT = [['M3.5 12.5h9'], ['M9.6 3.6 12.4 6.4'], ['M4.2 11.8 9.6 3.6l2.8 2.8-6.2 5.4-2 .6z']];
 
 		/* ------------------------------------------------------------------ *
 		 * Small helpers
@@ -2904,10 +2928,7 @@ window.__ModuleLoader__.load({
 		var PRIMITIVES = loadPrimitives();
 		var MarkdownText = isRenderable(PRIMITIVES.MarkdownText) ? PRIMITIVES.MarkdownText : null;
 		var Tag = isRenderable(PRIMITIVES.Tag) ? PRIMITIVES.Tag : null;
-		/** The shell's read-only code card: the file view's highlighted mode. */
-		var CodeBlock = isRenderable(PRIMITIVES.CodeBlock) ? PRIMITIVES.CodeBlock : null;
-		/**
-		 * The shell's own tree vocabulary.
+		/** The shell's own tree vocabulary.
 		 *
 		 * A file tree that draws its own folder shapes and category colours is a
 		 * tree that drifts from the files panel beside it. These four are what
@@ -2921,6 +2942,13 @@ window.__ModuleLoader__.load({
 		var IconFolderOpen = isRenderable(PRIMITIVES.IconFolderOpenRegular) ? PRIMITIVES.IconFolderOpenRegular : null;
 		var IconFolderClosed = isRenderable(PRIMITIVES.IconFolderCloseRegular) ? PRIMITIVES.IconFolderCloseRegular : null;
 		var PathLabel = isRenderable(PRIMITIVES.PathLabel) ? PRIMITIVES.PathLabel : null;
+		/**
+		 * The shell's own highlighter and language table: the same grammars the chat's
+		 * code blocks use, one token list per line. Optional — without it the editor
+		 * still edits, it simply shows no colors.
+		 */
+		var useHighlighter = typeof PRIMITIVES.useCodeHighlighter === 'function' ? PRIMITIVES.useCodeHighlighter : null;
+		var languageForPath = typeof PRIMITIVES.languageForPath === 'function' ? PRIMITIVES.languageForPath : null;
 		var ShellrelativeTime = typeof PRIMITIVES.relativeTime === 'function' ? PRIMITIVES.relativeTime : null;
 
 		/**
@@ -2978,6 +3006,16 @@ window.__ModuleLoader__.load({
 		var TABS_DEBOUNCE_MS = 250;
 		/** How many entries one level renders before it says so. */
 		var TREE_RENDER_CAP = 800;
+		/**
+		 * How long typing settles before the grammar is asked to re-tokenize.
+		 *
+		 * A keystroke must never wait for a parse, and a parse per keystroke is what
+		 * makes an editor feel heavy: the draft is painted immediately (plain) and the
+		 * colors arrive once the reader pauses.
+		 */
+		var HIGHLIGHT_DEBOUNCE_MS = 120;
+		/** Above this many lines a file is edited without colors rather than slowly. */
+		var HIGHLIGHT_LINE_CAP = 4000;
 
 		/** Extensions drawn with the code glyph; anything else gets the plain sheet. */
 		var CODE_EXTENSIONS = new Set(['js', 'mjs', 'cjs', 'ts', 'tsx', 'jsx', 'json', 'css', 'scss', 'less', 'html', 'htm', 'xml', 'yml', 'yaml', 'toml', 'ini', 'sh', 'ps1', 'py', 'rb', 'go', 'rs', 'java', 'c', 'h', 'cc', 'cpp', 'hpp', 'cs', 'php', 'lua', 'sql', 'vue', 'svelte']);
@@ -3009,7 +3047,6 @@ window.__ModuleLoader__.load({
 
 		/** Which preview a path gets, if it is not simply edited as text. */
 		var MARKDOWN_VIEW = 'markdown';
-		var HTML_VIEW = 'html';
 		var TEXT_VIEW = 'text';
 		var FOREIGN_VIEW = 'foreign';
 
@@ -3031,19 +3068,8 @@ window.__ModuleLoader__.load({
 		function viewerKindOf(path, doc) {
 			var extension = extensionOf(path);
 			if (MARKDOWN_EXTENSIONS.has(extension)) return MARKDOWN_VIEW;
-			if (extension === 'html' || extension === 'htm') return HTML_VIEW;
 			if (doc !== undefined && doc !== null && typeof doc.text === 'string' && doc.binary !== true && doc.oversized !== true) return TEXT_VIEW;
 			return FOREIGN_VIEW;
-		}
-
-		/** Whether a kind can be edited here at all. */
-		function kindIsEditable(kind) {
-			return kind === TEXT_VIEW || kind === MARKDOWN_VIEW || kind === HTML_VIEW;
-		}
-
-		/** Whether a kind opens in preview rather than in the editor. */
-		function kindPrefersPreview(kind) {
-			return kind === MARKDOWN_VIEW || kind === HTML_VIEW;
 		}
 
 		/**
@@ -3302,23 +3328,40 @@ window.__ModuleLoader__.load({
 				setHighlight: function (path, on) {
 					patch({ highlighting: on ? path : (state.highlighting === path ? null : state.highlighting) });
 				},
-
 				/** Note that the shell previewer refused the last hand-off. */
 				noteOpenFailed: function (failed) {
 					if (state.openFailed === failed) return;
 					patch({ openFailed: failed });
 				},
 
-				/** Choose preview or edit for one tab; the default comes from its kind. */
+				/** Choose preview, split or edit for one tab; the default comes from its kind. */
 				setMode: function (path, mode) {
 					patch({ modes: Object.assign({}, state.modes, { [path]: mode }) });
 				},
 
-				/** The mode one tab is in, defaulting by kind. */
+				/**
+				 * The mode one tab is in.
+				 *
+				 * Only Markdown has more than one: it is the one type whose source and
+				 * whose rendering are both worth looking at, so it gets edit / preview /
+				 * side-by-side. Everything else is edited, which is what an editor does
+				 * with source — the mode controls are hidden for those.
+				 */
 				modeOf: function (path) {
 					var chosen = state.modes[path];
-					if (chosen === 'preview' || chosen === 'edit') return chosen;
-					return kindPrefersPreview(viewerKindOf(path, state.docs[path])) ? 'preview' : 'edit';
+					if (viewerKindOf(path, state.docs[path]) !== MARKDOWN_VIEW) return 'edit';
+					if (chosen === 'preview' || chosen === 'edit' || chosen === 'split') return chosen;
+					return 'preview';
+				},
+
+				/** Whether one path's editor paints syntax colors. */
+				highlightsPath: function (path) {
+					return state.highlighting !== path;
+				},
+
+				/** Turn the editor's syntax colors on or off for one tab. */
+				setHighlighting: function (path, on) {
+					patch({ highlighting: on ? null : path });
 				},
 
 				/**
@@ -3487,6 +3530,130 @@ window.__ModuleLoader__.load({
 				}));
 		}
 
+		/**
+		 * A code editor with syntax highlighting, the way an editor does it.
+		 *
+		 * There is no editable highlighted control in the shell — its `CodeBlock` is
+		 * read-only — and this bundle cannot ship CodeMirror. So the highlighting is a
+		 * layer: the shell's own highlighter (`useCodeHighlighter`, the same grammar
+		 * table the chat's code blocks use) paints an absolutely positioned column of
+		 * lines BEHIND a textarea whose own glyphs are transparent but whose caret and
+		 * selection are not. What makes the illusion hold is that the two layers get
+		 * byte-identical metrics — the same `font` shorthand, the same padding, the
+		 * same `white-space: pre`, the same `tab-size` — so a source line is a 19px
+		 * line box in both no matter how many token spans it carries.
+		 *
+		 * Typing must never wait for a grammar: the input handler writes the plain
+		 * draft straight into the layer through a ref (one string assignment, no
+		 * React render, no highlighter), and the highlighted painting arrives on a
+		 * debounce. The layer is filled imperatively for that reason — React owns the
+		 * element, never its children.
+		 */
+		function CodeEditor(props) {
+			var path = props.path;
+			var text = props.text;
+			var t = props.t;
+			var language = languageForPath === null ? undefined : languageForPath(path);
+			/* A hook cannot be called conditionally, so the module-level binding is
+			 * called either way: without the shell's highlighter it is a no-op that
+			 * reports "no spans", which is the same fallback an unknown grammar gets. */
+			var highlight = useHighlighter !== null ? useHighlighter(language) : noHighlight;
+			var layerRef = React.useRef(null);
+			var gutterRef = React.useRef(null);
+			var boxRef = React.useRef(null);
+			var textRef = React.useRef(null);
+			var [painting, setPainting] = React.useState(text);
+			var highlighting = props.highlighting !== false;
+
+			React.useEffect(function () {
+				var timer = window.setTimeout(function () { setPainting(text); }, HIGHLIGHT_DEBOUNCE_MS);
+				return function () { window.clearTimeout(timer); };
+			}, [text]);
+
+			/* Paint the layer: plain text while typing, tokens once the grammar has
+			 * caught up. Both paths produce the same line boxes. */
+			React.useEffect(function () {
+				var node = layerRef.current;
+				if (node === null) return;
+				var spans = highlighting ? highlight(painting) : undefined;
+				var count = painting.split('\n').length;
+				node.textContent = '';
+				if (spans === undefined || count > HIGHLIGHT_LINE_CAP) {
+					/* The zero-width character keeps the final empty line's box: a `<pre>`
+					 * drops the newline that sits right before its end tag, and without
+					 * that box the layer would be one line shorter than the textarea. */
+					node.textContent = painting + '\u200b';
+					return;
+				}
+				var fragment = document.createDocumentFragment();
+				for (var at = 0; at < count; at += 1) {
+					var line = document.createElement('div');
+					line.className = 'dshdv-fvCodeLine';
+					var tokens = at < spans.length ? spans[at] : [];
+					for (var token = 0; token < tokens.length; token += 1) {
+						var span = document.createElement('span');
+						span.textContent = tokens[token].text;
+						if (tokens[token].style !== undefined) span.setAttribute('style', 'color:' + String(tokens[token].style.color ?? ''));
+						line.appendChild(span);
+					}
+					/* An empty line still needs its box, or every line below it shifts. */
+					if (tokens.length === 0) line.appendChild(document.createTextNode('\u200b'));
+					fragment.appendChild(line);
+				}
+				node.appendChild(fragment);
+			}, [painting, highlighting, highlight]);
+
+			/** Keep the two layers and the gutter on the textarea's scroll position. */
+			var syncScroll = function () {
+				var area = textRef.current;
+				if (area === null) return;
+				if (layerRef.current !== null) layerRef.current.style.transform = 'translate(' + String(-area.scrollLeft) + 'px,' + String(-area.scrollTop) + 'px)';
+				if (gutterRef.current !== null) gutterRef.current.style.transform = 'translateY(' + String(-area.scrollTop) + 'px)';
+			};
+
+			var lineCount = text.split('\n').length;
+			var numbers = [];
+			for (var line = 1; line <= lineCount; line += 1) numbers.push(h('div', { key: line, className: 'dshdv-fvCodeNum' }, String(line)));
+
+			return h('div', { className: 'dshdv-fvCode', ref: boxRef, 'data-dsh-diff-files-editor': path },
+				h('div', { className: 'dshdv-fvGutter' },
+					h('div', { className: 'dshdv-fvGutterInner', ref: gutterRef, 'data-dsh-diff-files-gutter': path }, numbers)),
+				h('pre', { className: 'dshdv-fvCodeLayer', ref: layerRef, 'aria-hidden': 'true', 'data-dsh-diff-files-layer': path }),
+				h('textarea', {
+					/* Uncontrolled: the draft lives in the DOM, so typing costs no render
+					 * and the model only hears the false→true transition. `wrap="off"`
+					 * keeps one source line on one visual line, which is what lets the
+					 * layer behind it stay aligned. */
+					ref: function (node) { textRef.current = node; if (props.registry !== undefined) props.registry.current[path] = node; },
+					className: highlighting ? 'dshdv-fvText dshdv-fvGhost' : 'dshdv-fvText',
+					'data-dsh-diff-files-input': path,
+					spellCheck: false,
+					wrap: 'off',
+					defaultValue: text,
+					onScroll: syncScroll,
+					onInput: function (event) {
+						props.onTouch();
+						var value = event.target.value;
+						/* The reader must see their own keystrokes NOW: paint the plain
+						 * draft directly, then let the debounce bring the colors. */
+						if (layerRef.current !== null && highlighting) layerRef.current.textContent = value;
+						props.onDirty(value !== text);
+					},
+					onKeyDown: function (event) {
+						if ((event.ctrlKey || event.metaKey) && (event.key === 's' || event.key === 'S')) {
+							event.preventDefault();
+							props.onSave(event.currentTarget.value);
+						}
+					},
+				}),
+				props.extra);
+		}
+
+		/** What a component without the shell's highlighter uses: no tokens, ever. */
+		function noHighlight() {
+			return undefined;
+		}
+
 		/** The file view: tree, tab strip, editor. */
 		function FilesView(props) {
 			var controller = props.controller;
@@ -3609,6 +3776,24 @@ window.__ModuleLoader__.load({
 
 			var panes = React.useRef({});
 
+			/** The textarea of a Markdown tab in split mode lives here too. */
+			var splitPanes = React.useRef({});
+
+			function editorFor(path, doc, options) {
+				return h(CodeEditor, {
+					key: (options !== undefined && options.key !== undefined ? options.key : '') + path,
+					path: path,
+					text: doc.text,
+					registry: options !== undefined && options.registry !== undefined ? options.registry : panes,
+					highlighting: controller.highlightsPath(path),
+					t: t,
+					onDirty: function (dirty) { controller.setDirty(path, dirty); },
+					onSave: function (text) { void controller.save(sessionId, path, text, false); },
+					onTouch: markActive,
+					extra: options !== undefined && options.extra !== undefined ? options.extra : null,
+				});
+			}
+
 			function paneBody(path) {
 				var doc = state.docs[path];
 				var t2 = t;
@@ -3641,56 +3826,25 @@ window.__ModuleLoader__.load({
 							'data-dsh-diff-files-download': path,
 						}, t2('files.download')));
 				}
-				if (mode === 'preview' && kind === MARKDOWN_VIEW) {
+				/* Only Markdown has anything to show besides its source: a rendered
+				 * document. Code files are edited — highlighted — and that is the whole
+				 * of their surface, which is what an editor like VS Code does too. */
+				if (kind === MARKDOWN_VIEW && mode === 'preview') {
 					return h('div', { className: 'dshdv-fvPreview', 'data-dsh-diff-files-preview': path },
 						MarkdownText !== null
 							? h(MarkdownText, { text: doc.text, labels: markdownLabels })
 							: plainMarkdown(doc.text));
 				}
-				if (mode === 'preview' && kind === HTML_VIEW) {
-					return h('div', { className: 'dshdv-fvFrameWrap' },
-						h('p', { className: 'dshdv-fvNote' }, t2('files.htmlSandbox')),
-						/* No `allow-scripts`, so the document cannot run anything even
-						 * though it is served from this origin. */
-						h('iframe', {
-							className: 'dshdv-fvFrame',
-							title: path,
-							sandbox: '',
-							src: rawUrl(sessionId, path, false),
-							'data-dsh-diff-files-frame': path,
-						}));
+				if (kind === MARKDOWN_VIEW && mode === 'split') {
+					return h('div', { className: 'dshdv-fvSplit', 'data-dsh-diff-files-split': path },
+						h('div', { className: 'dshdv-fvSplitSide' },
+							editorFor(path, doc, { registry: splitPanes, key: 'split:' })),
+						h('div', { className: 'dshdv-fvSplitPreview' },
+							MarkdownText !== null
+								? h(MarkdownText, { text: doc.text, labels: markdownLabels })
+								: plainMarkdown(doc.text)));
 				}
-				if (state.highlighting === path) {
-					return h('div', { className: 'dshdv-fvHighlight', 'data-dsh-diff-files-highlight': path },
-						CodeBlock === null
-							? h('pre', { className: 'dshdv-fvText' }, doc.text)
-							: h(CodeBlock, {
-								code: doc.text,
-								lang: extensionOf(path) === '' ? undefined : extensionOf(path),
-								lineNumbers: true,
-								copyLabel: t2('turns.copy'),
-								copiedLabel: t2('turns.copied'),
-							}));
-				}
-				return h('textarea', {
-					/* Uncontrolled: the draft lives in the DOM, so typing costs no render
-					 * and the model only hears the false→true transition. */
-					ref: function (node) { panes.current[path] = node; },
-					className: 'dshdv-fvText',
-					'data-dsh-diff-files-editor': path,
-					spellCheck: false,
-					defaultValue: doc.text,
-					onInput: function (event) {
-						markActive();
-						controller.setDirty(path, event.target.value !== doc.text);
-					},
-					onKeyDown: function (event) {
-						if ((event.ctrlKey || event.metaKey) && (event.key === 's' || event.key === 'S')) {
-							event.preventDefault();
-							void controller.save(sessionId, path, event.currentTarget.value, false);
-						}
-					},
-				});
+				return editorFor(path, doc, {});
 			}
 
 			var editorPanes = state.tabs.map(function (path) {
@@ -3732,20 +3886,34 @@ window.__ModuleLoader__.load({
 			var editorHead = activePath === null ? null : h('div', { className: 'dshdv-fvEditorHead' },
 				h('span', { className: 'dshdv-fvPath' }, activePath),
 				status === null ? null : h('span', { className: 'dshdv-fvStatus', 'data-dsh-diff-files-status': '' }, status),
-				/* Preview and edit are the two things a previewer is not: a rendered
-				 * view and an editor. Types this pane cannot show offer the hand-off
-				 * to the shell instead, which is where their renderers live. */
-				activeKind !== null && kindIsEditable(activeKind) && activeMode === 'preview'
-					? h('button', { type: 'button', className: 'dshdv-btn', 'data-dsh-diff-files-edit-mode': '', onClick: function () { controller.setMode(activePath, 'edit'); } }, t('files.mode.edit'))
+				/* One segmented control, and only for Markdown: preview, side by side,
+				 * edit. Code files have a single surface — the highlighted editor — so
+				 * they get no switch to nowhere. */
+				activeKind === MARKDOWN_VIEW
+					? h('span', { className: 'dshdv-fvModes', role: 'group', 'aria-label': t('files.mode') },
+						[['preview', 'files.mode.preview'], ['split', 'files.mode.split'], ['edit', 'files.mode.edit']].map(function (entry) {
+							return h('button', {
+								key: entry[0],
+								type: 'button',
+								className: 'dshdv-btn',
+								'data-dsh-diff-files-mode': entry[0],
+								'aria-pressed': activeMode === entry[0],
+								onClick: function () { controller.setMode(activePath, entry[0]); },
+							}, t(entry[1]));
+						}))
 					: null,
-				activeKind !== null && kindIsEditable(activeKind) && activeMode !== 'preview'
-					? h('button', { type: 'button', className: 'dshdv-btn', 'data-dsh-diff-files-preview-mode': '', onClick: function () { controller.setMode(activePath, 'preview'); } }, t('files.mode.preview'))
-					: null,
-				activeKind !== null && activeMode !== 'preview' && activeKind === TEXT_VIEW
-					? h('button', { type: 'button', className: 'dshdv-btn', 'data-dsh-diff-files-highlight-toggle': '', onClick: function () { controller.setHighlight(activePath, true); } }, t('files.highlight'))
-					: null,
-				activeKind !== null && state.highlighting === activePath
-					? h('button', { type: 'button', className: 'dshdv-btn', 'data-dsh-diff-files-edit': '', onClick: function () { controller.setHighlight(activePath, false); } }, t('files.edit'))
+				/* Colors in the editor are a preference, not a mode: code is edited
+				 * with them on, and this is the way out if a grammar ever misbehaves. */
+				activeKind !== null && activeKind !== FOREIGN_VIEW
+					? h('button', {
+						type: 'button',
+						className: 'dshdv-btn',
+						'data-dsh-diff-files-highlight-toggle': '',
+						'aria-pressed': controller.highlightsPath(activePath),
+						title: t('files.highlight'),
+						'aria-label': t('files.highlight'),
+						onClick: function () { controller.setHighlighting(activePath, !controller.highlightsPath(activePath)); },
+					}, icon(ICON_HIGHLIGHT))
 					: null,
 				h('button', {
 					type: 'button',

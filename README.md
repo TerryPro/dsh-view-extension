@@ -172,6 +172,37 @@ check('a button label never wraps', btnRule.includes('white-space:nowrap'))
 check('the editor head cannot be forced taller by a wrapping label', fileHeadRule.includes('min-height:32px'))
 check('header labels are translated, not raw keys', ...)   // 原始键出现在界面上 = 字典缺条目
 ```
+### 谁有预览、谁只有编辑器（按你的建议收窄了模型）
+
+| 类型 | 表面 |
+|---|---|
+| `.md` `.markdown` | **三种**：预览 / **并排**（左源码右文档）/ 编辑 —— Markdown 是唯一"源码与渲染都值得看"的类型 |
+| `.js` `.ts` `.json` `.yaml` `.html` `.css` … 一切代码与文本 | **只有一种**：高亮编辑器（VS Code 的做法，源码就是这个文件的样子） |
+| 图片 / PDF / Office / 二进制 / 超大 | 交给外壳的预览器 + 下载 |
+
+**高亮怎么做出来的**（外壳没有"可编辑的高亮控件"，`CodeBlock` 是只读的，而本插件没有构建步骤、装不了 CodeMirror）：
+
+```
+┌─ .dshdv-fvCode ─────────────────────────────┐
+│ .dshdv-fvGutter   ← 行号（窗口 + 位移层）      │
+│ .dshdv-fvCodeLayer ← 外壳 useCodeHighlighter 的每行 token │
+│ textarea .dshdv-fvGhost ← 字形透明、**光标可见** │
+└─────────────────────────────────────────────┘
+```
+
+三层都靠 `transform` 跟随 textarea 的滚动（不重排、不重渲染）。成立的前提是**两层度量逐字一致**：同一个 `font` 简写（因此行盒固定 19px）、同一份 `padding`、`white-space:pre`、`tab-size:2`，外加 `wrap="off"` —— 这样"一行源码 = 一行 19px 行盒"，无论该行有多少个 token 片段。
+
+打字**从不等待语法解析**：`onInput` 把纯文本直接写进层里（一次字符串赋值，无 React 渲染），高亮版本在 **120ms 去抖**后到达；超过 4000 行则只走纯文本路径。
+
+行号数的是 `split('\n').length` —— 末尾换行后的那个空行**也要编号**，因为 textarea 里光标能停上去；纯文本路径末尾补一个零宽字符，否则 `<pre>` 会吃掉末尾换行而少一行（这一条被测试抓到了）。
+
+我在浏览器里无法验证"像素级对齐"，所以把**度量契约本身**写成了断言：
+
+```js
+check('the layer and the textarea agree on every metric', metricsOf(inputRule) === metricsOf(layerRule))
+check('the gutter shares the code font and its first-line offset', ...)
+check('the ghosted textarea keeps a visible caret', ...)   // 字形透明但光标必须看得见
+```
 ### 各类文件怎么浏览、哪些能编辑
 
 参考 `DSH-better-sidebar` 的 `src/client/builtins/viewers.tsx`，它自己写了一句决定性的判断：
@@ -308,7 +339,7 @@ dsh plugin add link:F:/deepseek_harness_workspace/dsh-diff-view
 
 ```bash
 node tools/test-host.mjs      # 155 项：解析器对真实 git 输出、路由行为、会话折叠与兜底、围栏
-node tools/smoke-client.mjs   # 293 项：契约、注册、渲染、交互、失败态
+node tools/smoke-client.mjs   # 302 项：契约、注册、渲染、交互、失败态
 npm test                      # 两个都跑
 ```
 

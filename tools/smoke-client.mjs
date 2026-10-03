@@ -885,7 +885,9 @@ const viewProps = {
       'files.oversized': '文件太大（上限 {count} 字节）',
       'files.saveFailed': '保存失败：{detail}',
       'files.root': '工作目录',
+      'files.mode': '显示方式',
       'files.mode.preview': '预览',
+      'files.mode.split': '并排',
       'files.mode.edit': '编辑',
       'files.openInShell': '用外壳预览器打开',
       'files.openFailed': '外壳的预览器现在不可用',
@@ -1648,8 +1650,10 @@ const treeRows = () => findAll(fileTree, node => node.type === 'button' && node.
 const tabNodes = () => findAll(fileTree, node => node.props?.['data-path'] !== undefined && node.props?.['role'] === 'tab')
 /** One editor pane by path. */
 const paneFor = path => findAll(fileTree, node => node.props?.['data-dsh-diff-files-pane'] === path)[0]
-/** The editor of one file, wherever it is mounted. */
-const editorFor = path => findAll(fileTree, node => node.props?.['data-dsh-diff-files-editor'] === path)[0]
+/** The editor BOX of one file (the wrapper holding gutter, layer and textarea). */
+const editorBox = path => findAll(fileTree, node => node.props?.['data-dsh-diff-files-editor'] === path)[0]
+/** The editing textarea of one file — what a reader types into. */
+const editorFor = path => findAll(fileTree, node => node.props?.['data-dsh-diff-files-input'] === path)[0]
 const closeButtons = () => findAll(fileTree, node => node.props?.className === 'dshdv-fvTabClose')
 const dirtyDots = () => findAll(fileTree, node => node.props?.className === 'dshdv-fvDot').length
 
@@ -1688,45 +1692,63 @@ check('the pane is the active one', paneFor('src/keep.txt')?.props['data-active'
 treeRows().find(node => node.props['data-path'] === 'notes.txt').props.onClick()
 await settle(4)
 await showFiles()
-check('every open file keeps its editor mounted', findAll(fileTree, node => node.props?.['data-dsh-diff-files-editor'] !== undefined).length === 2, JSON.stringify(findAll(fileTree, node => node.props?.['data-dsh-diff-files-editor'] !== undefined).map(node => node.props['data-dsh-diff-files-editor'])))
+check('every open file keeps its editor mounted', findAll(fileTree, node => node.props?.['data-dsh-diff-files-input'] !== undefined).length === 2, JSON.stringify(findAll(fileTree, node => node.props?.['data-dsh-diff-files-input'] !== undefined).map(node => node.props['data-dsh-diff-files-input'])))
 check('only the active pane is visible', paneFor('src/keep.txt')?.props.hidden === true && paneFor('notes.txt')?.props.hidden !== true, JSON.stringify([paneFor('src/keep.txt')?.props.hidden, paneFor('notes.txt')?.props.hidden]))
 
-/* Per-type viewing. A Markdown document opens in the shell's own renderer, and
- * the editor is one toggle away — the split the reference implementation also
- * makes (its markdown/html viewers are the ones it keeps). */
+/* Per-type viewing. Markdown is the ONE type with more than a source view: it
+ * gets preview / side-by-side / edit, and the editor for its source. Everything
+ * else — js, ts, yaml, html, plain text — is edited, highlighted, with no mode
+ * switch, which is what an editor like VS Code does with source. */
 treeRows().find(node => node.props['data-path'] === 'README.md').props.onClick()
 await settle(4)
 await showFiles()
 check('markdown opens in the shell\'s renderer', findAll(fileTree, node => node.props?.['data-markdown'] !== undefined).length === 1, textOf(fileTree))
 check('and not in an editor', editorFor('README.md') === undefined)
-check('a previewed file can be switched to editing', findAll(fileTree, node => node.props?.['data-dsh-diff-files-edit-mode'] !== undefined).length === 1, textOf(fileTree))
-findAll(fileTree, node => node.props?.['data-dsh-diff-files-edit-mode'] !== undefined)[0].props.onClick()
+const modeButtons = () => findAll(fileTree, node => node.props?.['data-dsh-diff-files-mode'] !== undefined)
+check('markdown offers all three ways to look at it', JSON.stringify(modeButtons().map(node => node.props['data-dsh-diff-files-mode'])) === JSON.stringify(['preview', 'split', 'edit']), JSON.stringify(modeButtons().map(node => node.props['data-dsh-diff-files-mode'])))
+check('the current one is marked pressed', modeButtons()[0].props['aria-pressed'] === true && modeButtons()[2].props['aria-pressed'] === false, JSON.stringify(modeButtons().map(node => node.props['aria-pressed'])))
+
+// Side by side: the source and the rendered document, at the same time.
+modeButtons()[1].props.onClick()
+await settle(2)
+await showFiles()
+check('side by side renders the source next to the document', findAll(fileTree, node => node.props?.['data-dsh-diff-files-split'] !== undefined).length === 1
+  && findAll(fileTree, node => node.props?.['data-markdown'] !== undefined).length === 1
+  && editorFor('README.md') !== undefined, textOf(fileTree))
+
+modeButtons()[2].props.onClick()
 await settle(2)
 await showFiles()
 check('switching to editing mounts the editor', editorFor('README.md')?.props.defaultValue === '# hello\nworld\n', JSON.stringify(editorFor('README.md')?.props.defaultValue))
-check('and the way back to the preview is offered', findAll(fileTree, node => node.props?.['data-dsh-diff-files-preview-mode'] !== undefined).length === 1)
-findAll(fileTree, node => node.props?.['data-dsh-diff-files-preview-mode'] !== undefined)[0].props.onClick()
+check('the source is highlighted, not plain', editorBox('README.md') !== undefined
+  && findAll(fileTree, node => node.props?.['data-dsh-diff-files-layer'] === 'README.md').length === 1
+  && String(editorFor('README.md')?.props.className).includes('dshdv-fvGhost'), JSON.stringify({ layer: findAll(fileTree, node => node.props?.['data-dsh-diff-files-layer'] === 'README.md').length, className: editorFor('README.md')?.props.className }))
+check('and it has a gutter with one number per line', findAll(fileTree, node => node.props?.['data-dsh-diff-files-gutter'] === 'README.md').length === 1
+  /* Three lines: "# hello", "world", and the empty one a trailing newline opens —
+   * the textarea shows that last line (the caret can sit on it), so the gutter
+   * must number it too, or every number below a trailing newline would drift. */
+  && findAll(findAll(fileTree, node => node.props?.['data-dsh-diff-files-gutter'] === 'README.md')[0], node => node.props?.className === 'dshdv-fvCodeNum').length === 3, String(findAll(findAll(fileTree, node => node.props?.['data-dsh-diff-files-gutter'] === 'README.md')[0], node => node.props?.className === 'dshdv-fvCodeNum').length))
+check('the textarea does not soft-wrap, or the layer would drift', editorFor('README.md')?.props.wrap === 'off', String(editorFor('README.md')?.props.wrap))
+modeButtons()[0].props.onClick()
 await settle(2)
 await showFiles()
 check('switching back renders the preview again', findAll(fileTree, node => node.props?.['data-markdown'] !== undefined).length === 1, textOf(fileTree))
 
-/* An HTML document gets a frame that cannot run scripts, pointed at the raw
- * route — this origin serves the bytes, so the sandbox is the whole defence.
- * (`src` is already expanded by the earlier part of this block; clicking a
- * directory row would collapse it.) */
+/* A code file gets the highlighted editor and NOTHING else: no mode switch, no
+ * frame, no read-only card — the source is the file. */
 treeRows().find(node => node.props['data-path'] === 'src/page.html').props.onClick()
 await settle(4)
 await showFiles()
-const frame = findAll(fileTree, node => node.props?.['data-dsh-diff-files-frame'] === 'src/page.html')[0]
-check('html opens in a frame', frame !== undefined, textOf(fileTree))
-check('the frame is sandboxed with no scripts', frame?.props.sandbox === '' && String(frame?.props.src).includes('/api/dsh-diff/raw'), JSON.stringify({ sandbox: frame?.props.sandbox, src: frame?.props.src }))
-check('the frame says it is sandboxed', textOf(fileTree).includes('沙箱'), textOf(fileTree))
+check('an html file is edited, highlighted', editorFor('src/page.html') !== undefined
+  && findAll(fileTree, node => node.props?.['data-dsh-diff-files-layer'] === 'src/page.html').length === 1, textOf(fileTree))
+check('a code file gets no preview frame', findAll(fileTree, node => node.props?.['data-dsh-diff-files-frame'] !== undefined).length === 0)
+check('and no mode switch to nowhere', findAll(fileTree, node => node.props?.['data-dsh-diff-files-mode'] !== undefined).length === 0, textOf(fileTree))
 /* Back to the markdown tab, in EDIT mode — that is what the save, conflict and
  * close assertions below are about. */
 findAll(fileTree, node => node.props?.['className'] === 'dshdv-fvTabName' && node.props?.['title'] === 'README.md')[0].props.onClick()
 await settle(2)
 await showFiles()
-findAll(fileTree, node => node.props?.['data-dsh-diff-files-edit-mode'] !== undefined)[0].props.onClick()
+modeButtons()[2].props.onClick()
 await settle(2)
 await showFiles()
 
@@ -1826,18 +1848,24 @@ check('a missing shell previewer is reported, not thrown', shellOpens.length ===
 check('and the failure is shown to the reader', findAll(fileTree, node => node.props?.['data-dsh-diff-files-open-failed'] !== undefined).length === 1, textOf(fileTree))
 services.set('sidebarRight', { openResource(address) { shellOpens.push(address) } })
 
-// The highlight toggle renders the shell's own code card — for a TEXT tab; a
-// binary tab has no highlighted view to offer, only its "not editable" notice.
-tabNodes().find(node => node.props['data-path'] === 'src/keep.txt') !== undefined
+// The colors are a preference, not a mode: turning them off shows the textarea's
+// own glyphs and leaves the layer plain. (A binary tab has no colors to toggle,
+// so the text tab is brought to the front first.)
 findAll(fileTree, node => node.props?.['className'] === 'dshdv-fvTabName' && node.props?.['title'] === 'src/keep.txt')[0].props.onClick()
 await settle(2)
 await showFiles()
-check('a text tab offers the highlight toggle', findAll(fileTree, node => node.props?.['data-dsh-diff-files-highlight-toggle'] !== undefined).length === 1, textOf(fileTree))
-findAll(fileTree, node => node.props?.['data-dsh-diff-files-highlight-toggle'] !== undefined)[0].props.onClick()
+const highlightButton = () => findAll(fileTree, node => node.props?.['data-dsh-diff-files-highlight-toggle'] !== undefined)[0]
+check('a text tab offers the colors toggle', highlightButton() !== undefined && highlightButton().props['aria-pressed'] === true, JSON.stringify(highlightButton()?.props['aria-pressed']))
+const ghostBefore = String(editorFor('src/keep.txt')?.props.className ?? '')
+highlightButton().props.onClick()
 await settle(2)
 await showFiles()
-check('the highlighted view is mounted', findAll(fileTree, node => node.props?.['data-dsh-diff-files-highlight'] !== undefined).length === 1, textOf(fileTree))
-check('and it went through the shell\'s code card', findAll(fileTree, node => node.props?.['data-markdown'] !== undefined || node.props?.className === 'dshdv-fvHighlight').length >= 1, textOf(fileTree))
+check('turning the colors off un-ghosts the textarea', !String(editorFor('src/keep.txt')?.props.className ?? '').includes('dshdv-fvGhost'), JSON.stringify({ before: ghostBefore, after: editorFor('src/keep.txt')?.props.className }))
+check('and the toggle reports itself off', highlightButton().props['aria-pressed'] === false, JSON.stringify(highlightButton().props['aria-pressed']))
+highlightButton().props.onClick()
+await settle(2)
+await showFiles()
+check('turning them back on ghosts it again', String(editorFor('src/keep.txt')?.props.className ?? '').includes('dshdv-fvGhost'), JSON.stringify(editorFor('src/keep.txt')?.props.className))
 
 /* The stylesheet is tagged with the plugin's own name. Untagged, the module
  * loader hands it to the next plugin that materializes and deletes it when that
@@ -1855,6 +1883,29 @@ const fileHeadRule = /^\.dshdv-fvEditorHead\{([^}]*)\}/mu.exec(styles)?.[1] ?? '
 check('the editor head cannot be forced taller by a wrapping label', fileHeadRule.includes('min-height:32px'), fileHeadRule)
 const fileStatusRule = /^\.dshdv-fvStatus\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
 check('the editor status keeps its own width', fileStatusRule.includes('white-space:nowrap'), fileStatusRule)
+
+/* THE METRIC CONTRACT. The highlight layer is painted BEHIND a textarea whose
+ * glyphs are transparent; the illusion holds only while both layers agree on
+ * every metric that decides where a glyph lands. Nothing in a DOM assertion can
+ * see a half-pixel drift, so the guard compares the two RULES: same font, same
+ * padding, same white-space, same tab-size. Change one layer alone and this
+ * fails before the colors slide away from the text. */
+const inputRule = /^\.dshdv-fvText\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
+const layerRule = /^\.dshdv-fvCodeLayer\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
+const metricsOf = rule => rule.split(';')
+  .map(part => part.trim())
+  .filter(part => /^(font|padding|white-space|tab-size):/u.test(part))
+  .sort()
+  .join(';')
+check('the layer and the textarea agree on every metric', metricsOf(inputRule) === metricsOf(layerRule) && metricsOf(inputRule).includes('font:'), JSON.stringify({ input: metricsOf(inputRule), layer: metricsOf(layerRule) }))
+check('the layer scrolls with the textarea instead of beside it', layerRule.includes('position:absolute') && layerRule.includes('pointer-events:none'), layerRule)
+/* The gutter's numbers must sit on the code's baselines: same font, and a top
+ * padding equal to the code's. */
+const gutterRule = /^\.dshdv-fvGutterInner\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
+check('the gutter shares the code font and its first-line offset', gutterRule.includes('font:var(--dsw-font-markdown-code-block') && gutterRule.includes('padding-top:8px'), gutterRule)
+/* Transparent glyphs are only usable while the caret still shows. */
+const ghostRule = /^\.dshdv-fvGhost\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
+check('the ghosted textarea keeps a visible caret', ghostRule.includes('color:transparent') && ghostRule.includes('caret-color:'), ghostRule)
 
 /* And the labels themselves reach the reader translated, not as their own keys —
  * a raw `files.mode.preview` in the header is a missing dictionary entry. */
