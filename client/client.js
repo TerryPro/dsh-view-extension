@@ -625,7 +625,7 @@ window.__ModuleLoader__.load({
 			 * geometry every time, and a long answer scrolls inside its third instead
 			 * of pushing the file pane off the bottom of the tab. */
 			'.dshdv-tvSaid{display:flex;flex-direction:column;flex:0 0 var(--dshdv-tv-said,33.33%);min-height:0;overflow:hidden}',
-			'.dshdv-tvAskPane{display:flex;flex-direction:column;flex:0 0 var(--dshdv-tv-ask,40%);min-height:0}',
+			'.dshdv-tvAskPane{display:flex;flex-direction:column;flex:0 0 var(--dshdv-tv-ask,30%);min-height:0}',
 			'.dshdv-tvAnswerPane{display:flex;flex-direction:column;flex:1 1 auto;min-height:0}',
 			/* A panel's own header: the same 26px label row the file panes use, so the two
 			 * halves read as siblings rather than as one document. */
@@ -635,10 +635,13 @@ window.__ModuleLoader__.load({
 			/* The question is the shell's own user bubble: right-aligned, on
 			 * `--dsw-specific-bubble`, at `--dsw-radius-xl`, sized by the body axis
 			 * the Settings font preference publishes. */
-			'.dshdv-tvAskRow{display:flex;flex-direction:column;align-items:flex-end;gap:4px;min-width:0}',
-			'.dshdv-tvBubble{max-width:82%;background:var(--dsw-specific-bubble,#eef3ff);border-radius:var(--dsw-radius-xl,20px);padding:10px 16px;font-size:var(--dsh-content-font-size,14px);line-height:calc(22px + var(--dsh-content-font-delta,0px));color:var(--dsw-alias-label-primary,#1b1f24);white-space:pre-wrap;word-break:break-word}',
+			/* Left-aligned, because it is the content of a PANEL and not a chat bubble: a
+			 * right-aligned line inside a titled pane reads as a stray element far from its own
+			 * header, with the empty space below it looking like a bug. */
+			'.dshdv-tvAskRow{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0}',
+			'.dshdv-tvBubble{max-width:100%;background:var(--dsw-specific-bubble,#eef3ff);border-radius:var(--dsw-radius-xl,20px);padding:10px 16px;font-size:var(--dsh-content-font-size,14px);line-height:calc(22px + var(--dsh-content-font-delta,0px));color:var(--dsw-alias-label-primary,#1b1f24);white-space:pre-wrap;word-break:break-word}',
 			'.dshdv-tvAskText{display:block}',
-			'.dshdv-tvInjected{align-self:flex-end;color:var(--dsw-alias-label-tertiary,#8b939e);font-size:var(--dsh-content-font-size-secondary,13px)}',
+			'.dshdv-tvInjected{align-self:flex-start;color:var(--dsw-alias-label-tertiary,#8b939e);font-size:var(--dsh-content-font-size-secondary,13px)}',
 			/* The answer is the shell's own Markdown renderer; this only places it. */
 			'.dshdv-tvMarkdown{min-width:0;color:var(--dsw-alias-label-primary,#1b1f24)}',
 			'.dshdv-tvMarkdown>*:first-child{margin-top:0}',
@@ -2650,7 +2653,7 @@ window.__ModuleLoader__.load({
 				return {
 					listWidth: remembered(TURNS_LIST_KEY, 196),
 					saidShare: remembered(TURNS_SAID_KEY, 33.33),
-					askShare: remembered(TURNS_ASK_KEY, 40),
+					askShare: remembered(TURNS_ASK_KEY, 30),
 					filesWidth: remembered(TURNS_FILES_KEY, 190),
 					/** Assigned to `gripFor` below; the state object is created first. */
 					grip: function () { return null; },

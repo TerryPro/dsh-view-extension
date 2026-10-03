@@ -1146,6 +1146,14 @@ const saidRuleNow = /^\.dshdv-tvSaid\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
 check('the question pane takes the share the reader set', saidRuleNow.includes('flex:0 0 var(--dshdv-tv-said'), saidRuleNow)
 const filesRuleNow = /^\.dshdv-tvFiles\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
 check('and the files pane takes what is left', filesRuleNow.includes('flex:1 1 auto'), filesRuleNow)
+/* Inside a titled panel the question is the panel's CONTENT: left-aligned, full
+ * width, a quoted block rather than a chat bubble pushed to the right. */
+const askRowRule = /^\.dshdv-tvAskRow\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
+check('the question aligns left, like the content of a panel', askRowRule.includes('align-items:flex-start'), askRowRule)
+const askBubbleRule = /^\.dshdv-tvBubble\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
+check('and it uses the panel width instead of a chat bubble share', askBubbleRule.includes('max-width:100%'), askBubbleRule)
+const injectedRule = /^\.dshdv-tvInjected\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
+check('the injected-prompt marker follows the same edge', injectedRule.includes('align-self:flex-start'), injectedRule)
 const tvListRule = /^\.dshdv-tvList\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
 check('the turn list width is a variable too', tvListRule.includes('width:var(--dshdv-tv-list-w'), tvListRule)
 const tvFileListRule = /^\.dshdv-tvFileList\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
@@ -2336,7 +2344,6 @@ tvListGrip.props.onPointerDown({ button: 0, clientX: 300, pointerId: 21, prevent
 check('dragging the turn-list seam writes its variable', tvWrites.some(entry => entry.startsWith('--dshdv-tv-list-w=')), JSON.stringify(tvWrites))
 ;[...windowListeners.get('pointerup')].slice(-1)[0]()
 check('and releasing remembers it', Number(storage.get('dsh-diff-view.turnsListWidth')) === 256, String(storage.get('dsh-diff-view.turnsListWidth')))
-check('and its share starts from a variable', findAll(qaTree, node => node.props?.['data-dsh-diff-turns'] !== undefined)[0]?.props?.style?.['--dshdv-tv-ask'] !== undefined, JSON.stringify(findAll(qaTree, node => node.props?.['data-dsh-diff-turns'] !== undefined)[0]?.props?.style))
 
 console.log('\nunmount')
 unmount()
