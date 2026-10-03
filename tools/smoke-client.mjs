@@ -1365,7 +1365,19 @@ check('and names its own id', textOf(commitRows()[0]).includes('a1b2c3d'), textO
 /* Everything a commit row can honestly carry, from the one `git log` the list
  * read: the author, the decorations git prints, whether it is a merge, and how
  * much it changed. */
-check('a row names its author', textOf(commitRows()[0]).includes('hexiaoyu'), textOf(commitRows()[0]))
+/* The meta line has one slot for "who / where", and git's labels win it: they are
+ * the rarer fact and the one a decision hangs on. The author steps aside for them
+ * but stays in the hover, and a commit with no decorations still names its author. */
+check('decorations take the meta line, and the author steps aside for them', !textOf(commitRows()[0]).includes('hexiaoyu') && String(commitRows()[0].props.title).includes('he.xiaoyu@163.com'), textOf(commitRows()[0]))
+check('a commit without decorations still names its author', textOf(commitRows()[1]).includes('Someone Else'), textOf(commitRows()[1]))
+/* And the subject keeps the first line to itself, so every row starts at the same
+ * place whether or not it carries labels. */
+const rowSubject = node => node.children?.[0]
+check('the subject owns the first line', String(rowSubject(commitRows()[0])?.props?.className ?? '').includes('dshdv-commitSubject')
+  && findAll(rowSubject(commitRows()[0]) ?? commitRows()[0], child => child.props?.className === 'dshdv-refChip').length === 0,
+JSON.stringify(rowSubject(commitRows()[0])?.props?.className))
+check('and the labels live on the second', findAll(rowSubject(commitRows()[1]) ?? commitRows()[1], child => child.props?.className === 'dshdv-refChip').length === 0
+  && findAll(commitRows()[0], child => child.props?.className === 'dshdv-refChip').length >= 2, JSON.stringify(findAll(commitRows()[0], child => child.props?.className === 'dshdv-refChip').length))
 check('a row shows the branch and tag pointing at it', textOf(commitRows()[0]).includes('HEAD -> main') && textOf(commitRows()[0]).includes('tag: round-2'), textOf(commitRows()[0]))
 check('a row counts what it changed', textOf(commitRows()[0]).includes('3 个文件') && textOf(commitRows()[0]).includes('+12') && textOf(commitRows()[0]).includes('−4'), textOf(commitRows()[0]))
 check('a merge says so', textOf(commitRows()[1]).includes('合并'), textOf(commitRows()[1]))

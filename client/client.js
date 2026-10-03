@@ -3327,15 +3327,22 @@ window.__ModuleLoader__.load({
 							title: hover,
 							onClick: function () { selectCommit(entry.sha); },
 						},
+							/* The subject owns the first line on its own. The decorations used to sit in
+							 * front of it, which pushed the one piece of text a reader scans by to the
+							 * right, and made rows start at different places depending on whether they
+							 * carried any. */
 							h('span', { className: 'dshdv-commitSubject' },
-								entry.refs.length === 0 ? null : entry.refs.map(function (ref) {
-									return h('span', { key: ref, className: 'dshdv-refChip' }, ref);
-								}),
 								h('span', { className: 'dshdv-commitTitle' }, entry.subject)),
 							h('span', { className: 'dshdv-commitMeta' },
 								h('span', { className: 'dshdv-commitSha' }, entry.short),
+								/* Where the commit sits comes right after its id; when it carries
+								 * decorations the author steps aside, because git's labels are the rarer
+								 * and more decision-relevant fact and the author is in the hover text. */
+								entry.refs.length === 0 ? null : entry.refs.map(function (ref) {
+									return h('span', { key: ref, className: 'dshdv-refChip' }, ref);
+								}),
 								entry.parents > 1 ? h('span', { className: 'dshdv-mergeChip' }, t('history.merge')) : null,
-								h('span', { className: 'dshdv-commitAuthor' }, entry.author),
+								entry.refs.length === 0 ? h('span', { className: 'dshdv-commitAuthor' }, entry.author) : null,
 								entry.files === 0 ? null : h('span', { className: 'dshdv-commitStats' },
 									format(t('history.files'), { count: entry.files }),
 									entry.added > 0 ? h('span', { className: 'dshdv-add' }, '+' + String(entry.added)) : null,

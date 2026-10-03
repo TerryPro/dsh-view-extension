@@ -201,6 +201,18 @@ if (locales.has(localeKey(locale))) throw new Error(`locale namespace "${ns}" al
 ```
 
 `CodeBlock`、`FileDiff`、消息里的代码全用它。现在编辑器正文、行号槽、面板也都用**同一条简写**（`.cm-scroller` 与 `.cm-content` 都要设：CodeMirror 自带主题在 content 上声明了 monospace 与行高，不覆盖就会赢）。
+#### 装饰标签挪到第二行
+
+`HEAD -> main`、`origin/main` 这类 git 装饰原来站在**第一行标题前面**。两块 chip 加起来几乎占满一列宽，后果有两个：**主题被挤到右边**，而且**有 chip 的行与没 chip 的行起始位置不同** —— 横向扫读时最难受的一点。
+
+现在：
+
+| 行 | 内容 |
+|---|---|
+| 第一行 | **只有主题**，每行都从同一位置开始 |
+| 第二行 | 短 id · **装饰标签** · 合并标记 · 作者 · 改动统计 · 相对时间 |
+
+第二行因此多了一个取舍：**有装饰时作者让位**（git 的标签是更稀有、也更是决策依据的信息；作者的完整信息在悬停里）。这条取舍写成了成对断言 —— 有装饰的行**不该**出现作者、没有装饰的行**必须**有作者。
 #### 白缝的第二处：线右侧的余量
 
 第一处白缝是**抓取带没涂色**；第二处是**线所在的位置**：那条 1px 的线原本放在 5px 带子的中间（`left:2px`），于是它**右边还剩 2px** —— 只要那 2px 没被涂色，就是"线右边又一条白缝"（截图里正是如此）。
@@ -554,7 +566,7 @@ dsh plugin add link:F:/deepseek_harness_workspace/dsh-diff-view
 ```bash
 node tools/test-host.mjs      # 191 项
 node tools/test-editor-chunk.mjs  # 33 项（CodeMirror 分块产物：注册、导出面、语法映射、缩进推断）：解析器对真实 git 输出、路由行为、会话折叠与兜底、围栏
-node tools/smoke-client.mjs   # 342 项（兜底编辑器）：契约、注册、渲染、交互、失败态
+node tools/smoke-client.mjs   # 345 项（兜底编辑器）：契约、注册、渲染、交互、失败态
 npm test                      # 两个都跑
 ```
 
