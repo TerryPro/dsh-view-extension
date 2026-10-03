@@ -725,6 +725,9 @@ window.__ModuleLoader__.load({
 			 * box at 19px), the same asymmetric padding, `white-space: pre`, the same
 			 * `tab-size`, and `wrap="off"` so one source line is always one visual
 			 * line. Nothing here may be changed for one layer alone. */
+			/* The CodeMirror host fills the pane; the editor brings its own gutter. */
+			'.dshdv-fvCm{flex:1 1 auto;min-height:0;min-width:0;overflow:hidden}',
+			'.dshdv-fvCm .cm-editor{height:100%}',
 			'.dshdv-fvCode{position:relative;display:flex;flex:1 1 auto;min-height:0;min-width:0;overflow:hidden;background:var(--dsw-alias-markdown-code-block,var(--dsw-alias-bg-layer-2,#fafafa))}',
 			'.dshdv-fvText{position:absolute;inset:0;z-index:2;box-sizing:border-box;margin:0;padding:8px 22px 20px 56px;border:0;outline:none;resize:none;background:transparent;color:var(--dsw-alias-label-primary,#1b1f24);font:var(--dsw-font-markdown-code-block,12px/19px var(--ds-font-family-code,monospace));tab-size:2;white-space:pre;overflow:auto}',
 			'.dshdv-fvText:focus-visible{outline:none}',
@@ -4467,6 +4470,50 @@ window.__ModuleLoader__.load({
 		 * debounce. The layer is filled imperatively for that reason — React owns the
 		 * element, never its children.
 		 */
+		/**
+		 * The CodeMirror chunk, loaded once per client session.
+		 *
+		 * `require.async('./client.editor.js')` is the module loader's package-local
+		 * chunk mechanism: it resolves to this plugin's own file, which registers
+		 * itself under `<pluginId>/<fileName>`. The chunk is large (a whole editor),
+		 * so it is fetched the first time a file is OPENED rather than at boot — and
+		 * a loader that cannot fetch it (or an old bundle that lacks it) is not an
+		 * error worth showing: the textarea editor stays, which is why this is a
+		 * cache and a fallback rather than a dependency.
+		 */
+		var editorChunk = { phase: 'idle', module: null, waiters: [] };
+
+		function loadEditorChunk() {
+			if (editorChunk.phase === 'ready') return Promise.resolve(editorChunk.module);
+			if (editorChunk.phase === 'failed') return Promise.resolve(null);
+			var pending = new Promise(function (resolve) {
+				editorChunk.waiters.push(resolve);
+			});
+			if (editorChunk.phase === 'loading') return pending;
+			editorChunk.phase = 'loading';
+			var settle = function (module) {
+				editorChunk.phase = module === null ? 'failed' : 'ready';
+				editorChunk.module = module;
+				var waiting = editorChunk.waiters;
+				editorChunk.waiters = [];
+				waiting.forEach(function (resolve) { resolve(module); });
+			};
+			try {
+				if (typeof require.async !== 'function') throw new Error('this loader has no require.async');
+				require.async('./client.editor.js').then(
+					function (module) { settle(module !== null && typeof module.createEditor === 'function' ? module : null); },
+					function (error) {
+						console.warn('[dsh-diff-view] the editor chunk did not load; using the plain editor:', error);
+						settle(null);
+					},
+				);
+			} catch (error) {
+				console.warn('[dsh-diff-view] the editor chunk is unavailable; using the plain editor:', error);
+				settle(null);
+			}
+			return pending;
+		}
+
 		function CodeEditor(props) {
 			var path = props.path;
 			var text = props.text;
@@ -4482,6 +4529,53 @@ window.__ModuleLoader__.load({
 			var textRef = React.useRef(null);
 			var [painting, setPainting] = React.useState(text);
 			var highlighting = props.highlighting !== false;
+			/* Which editor this pane ended up with: the CodeMirror chunk if it arrived,
+			 * the textarea otherwise. It is state rather than a ref because the render
+			 * itself differs. */
+			var [editor, setEditor] = React.useState(null);
+			var hostRef = React.useRef(null);
+			var handleRef = React.useRef(null);
+
+			React.useEffect(function () {
+				var live = true;
+				void loadEditorChunk().then(function (chunk) {
+					if (live && chunk !== null) setEditor(chunk);
+				});
+				return function () { live = false; };
+			}, []);
+
+			/* Mount the CodeMirror view once per pane. The pane is never unmounted while
+			 * its tab is open, so the document, the undo history and the selection all
+			 * survive switching tabs — the same property the textarea had. */
+			React.useEffect(function () {
+				if (editor === null || hostRef.current === null || handleRef.current !== null) return undefined;
+				var chunkLanguage = languageForPath === null ? undefined : languageForPath(path);
+				var handle;
+				try {
+					handle = editor.createEditor({
+						parent: hostRef.current,
+						doc: text,
+						language: chunkLanguage === undefined || editor.languageForPath === undefined
+							? undefined
+							: editor.languageForPath(path),
+						wrap: props.wrap === true,
+						onChange: function (value) {
+							props.onTouch();
+							props.onDirty(value !== text);
+						},
+						onSave: function (value) { props.onSave(value); },
+					});
+				} catch (error) {
+					console.error('[dsh-diff-view] the editor chunk failed to mount; using the plain editor:', error);
+					setEditor(null);
+					return undefined;
+				}
+				handleRef.current = handle;
+				if (props.registry !== undefined) {
+					props.registry.current[path] = { getText: function () { return handle.text(); } };
+				}
+				return undefined;
+			}, [editor, path]);
 
 			React.useEffect(function () {
 				var timer = window.setTimeout(function () { setPainting(text); }, HIGHLIGHT_DEBOUNCE_MS);
@@ -4532,6 +4626,29 @@ window.__ModuleLoader__.load({
 			var lineCount = text.split('\n').length;
 			var numbers = [];
 			for (var line = 1; line <= lineCount; line += 1) numbers.push(h('div', { key: line, className: 'dshdv-fvCodeNum' }, String(line)));
+
+			/* A reload from disk replaces the document; the same effect keeps the view
+			 * alive across it (a textarea got that for free by being uncontrolled). */
+			React.useEffect(function () {
+				var handle = handleRef.current;
+				if (handle === null || handle.text() === text) return;
+				handle.setText(text);
+			}, [text]);
+
+			React.useEffect(function () {
+				return function () {
+					if (handleRef.current !== null) handleRef.current.destroy();
+					handleRef.current = null;
+				};
+			}, []);
+
+			/* The real editor, when the chunk arrived: CodeMirror owns its own gutter,
+			 * highlight and scrolling, so none of the overlay machinery is rendered. */
+			if (editor !== null) {
+				return h('div', { className: 'dshdv-fvCode', 'data-dsh-diff-files-editor': path },
+					h('div', { className: 'dshdv-fvCm', ref: hostRef, 'data-dsh-diff-cm': path }),
+					props.extra);
+			}
 
 			return h('div', { className: 'dshdv-fvCode', ref: boxRef, 'data-dsh-diff-files-editor': path },
 				h('div', { className: 'dshdv-fvGutter' },
@@ -4691,6 +4808,9 @@ window.__ModuleLoader__.load({
 			/** The live text of one tab: what the reader typed, or what was read. */
 			function textFor(path) {
 				var node = panes.current[path];
+				/* Two editors, one contract: the CodeMirror handle reads its own document,
+				 * the textarea is the document. */
+				if (node !== null && node !== undefined && typeof node.getText === 'function') return node.getText();
 				if (node !== null && node !== undefined && typeof node.value === 'string') return node.value;
 				var doc = state.docs[path];
 				return doc === undefined ? '' : doc.text;
@@ -4708,6 +4828,7 @@ window.__ModuleLoader__.load({
 					text: doc.text,
 					registry: options !== undefined && options.registry !== undefined ? options.registry : panes,
 					highlighting: controller.highlightsPath(path),
+					wrap: true,
 					t: t,
 					onDirty: function (dirty) { controller.setDirty(path, dirty); },
 					onSave: function (text) { void controller.save(sessionId, path, text, false); },

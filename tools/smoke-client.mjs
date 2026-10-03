@@ -551,6 +551,21 @@ const requireStub = (name) => {
 }
 
 /**
+ * The loader's package-local chunk mechanism, as the plugin uses it.
+ *
+ * By default the chunk REFUSES to load, which is the fallback path every other
+ * test in this file exercises: the plain textarea editor has to keep working on a
+ * loader without `require.async`, or from a bundle whose chunk is missing. A test
+ * that wants the CodeMirror path swaps `chunkAnswer` for a fake module.
+ */
+let chunkAnswer = () => Promise.reject(new Error('no chunk in this environment'))
+const chunkRequests = []
+requireStub.async = (spec) => {
+  chunkRequests.push(spec)
+  return chunkAnswer(spec)
+}
+
+/**
  * Every request the view made, in order.
  *
  * The view calls the plugin's own routes with a page-relative URL

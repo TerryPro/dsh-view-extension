@@ -190,6 +190,17 @@ if (locales.has(localeKey(locale))) throw new Error(`locale namespace "${ns}" al
 2. 视图文案**走本插件自己的翻译器**（`inject` 里作为 `tr` 传入）—— 外壳字典缺哪个键，就用随这个包一起发布的字典兜住。这条对"以后再加键"同样有效。
 
 护栏是一条**构造出来的回归测试**：用一个 `t: key => key` 的"冻结字典"渲染，断言标签仍然读出 `预览 / 并排 / 编辑`。
+### 编辑器换成了 CodeMirror（懒加载分块 + 兜底）
+
+原来那套「textarea + 高亮叠加层 + 自绘行号槽」是**真编辑器缺席时的替代品**。现在接上了 CodeMirror 6，走的是加载器的**包内懒加载分块**机制：
+
+- 分块 `client/client.editor.js`（**591 KB**，已提交）—— 用户不需要构建；`tools/editor-entry.js` + `tools/build-editor.mjs` 记录了它是怎么打出来的（`npm run build:editor`）。
+- 加载器把 `require.async('./client.editor.js')` 解析成 **`/plugins/<插件id>/client.editor.js`**，并要求该文件以 `__ModuleLoader__.load({ id: "dsh-diff-view/client.editor.js", … })` 注册自己；文件名还必须匹配它那条 `^client\.[A-Za-z0-9][A-Za-z0-9._-]*\.js$` 规则。这三点我都实测过（200 / 605 209 字节）。
+- **没有用 `@codemirror/language-data`**：它靠动态 `import()` 解析语法，会再切出分块，而这个加载器**每个插件只服务一个兄弟文件**；语法是显式内联的 6 组（js/ts/jsx/tsx、json、html、css/scss、markdown、python）。
+- **失败即退回**：分块取不到（加载器没有 `require.async`、网络失败、旧包）时，原来的 textarea 编辑器继续用 —— 这不是装饰性的兼容，而是"插件不能因为一个可选库而不可用"。
+- 每个标签一个 `EditorView`，与标签同生共死：**文档、撤销历史、选区都跨标签切换保留**（和 textarea 时代同一性质）；`Mod-s` 仍走本插件的保存（`(mtime, bytes)` 冲突检测不变）。
+
+于是白拿了这些：**Tab / Shift+Tab 缩进**、`Ctrl+F` 文件内搜索、括号匹配与自动闭合、撤销历史、活动行高亮。
 ### 谁有预览、谁只有编辑器（按你的建议收窄了模型）
 
 | 类型 | 表面 |
