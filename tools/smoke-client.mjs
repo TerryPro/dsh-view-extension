@@ -882,6 +882,18 @@ const bubbleRule = /\.dshdv-tvBubble\{([^}]*)\}/u.exec(styles)?.[1] ?? ''
 check('the question bubble uses the shell bubble fill', bubbleRule.includes('var(--dsw-specific-bubble'), bubbleRule)
 check('the question bubble uses the shell bubble radius', bubbleRule.includes('var(--dsw-radius-xl'), bubbleRule)
 check('the question bubble follows the body font axis', bubbleRule.includes('--dsh-content-font-size') && bubbleRule.includes('--dsh-content-font-delta'), bubbleRule)
+
+/* The composer contract. A full-height pane that scrolls internally must take
+ * `data-conversation-composer-overlay`, or the composer becomes a second stacked
+ * block in the conversation's own scroller instead of floating over the pane —
+ * the shell's trajectory view takes the same attribute and reserves the same
+ * band. Both halves are asserted because either one alone is a broken layout:
+ * the attribute without clearance hides the last row, and clearance without the
+ * attribute reserves space under a composer that is not there. */
+const rootRule = /\.dshdv-root\{([^}]*)\}/u.exec(styles)?.[1] ?? ''
+check('the tab host reserves the live composer height', rootRule.includes('--dshdv-bottom-clearance') && rootRule.includes('var(--dsh-composer-height'), rootRule)
+check('the tab host never scrolls itself', rootRule.includes('overflow:hidden') && rootRule.includes('height:100%'), rootRule)
+check('every inner scroller clears the composer', /\.dshdv-listBody,\.dshdv-scroll,\.dshdv-tvListBody,\.dshdv-tvSaid,\.dshdv-tvFileList\{padding-bottom:var\(--dshdv-bottom-clearance\)\}/u.test(styles), 'clearance rule')
 check('the bundle asks the page for the shell primitives', primitivesAsked === true, 'the primitives module was required at load')
 
 console.log('\nthe auto-refresh cadence')
@@ -1267,6 +1279,7 @@ const turnRows = () => findAll(turnTree, node => node.type === 'button' && node.
 const turnFileRows = () => findAll(turnTree, node => node.type === 'button' && node.props !== undefined && node.props['data-path'] !== undefined)
 
 check('the turn browser reads its own route', requests.some(entry => entry.url === TURNS_LIST), JSON.stringify(requests.map(entry => entry.url)))
+check('the turn tab takes the composer overlay contract', findAll(turnTree, node => node.props?.['data-conversation-composer-overlay'] !== undefined).length === 1, String(findAll(turnTree, node => node.props?.['data-conversation-composer-overlay'] !== undefined).length))
 check('it lists one row per turn', turnRows().length === 3, JSON.stringify(turnRows().map(row => row.props['data-turn'])))
 check('the first turn is at the top', JSON.stringify(turnRows().map(row => row.props['data-turn'])) === JSON.stringify(['1', '2', '3']), JSON.stringify(turnRows().map(row => row.props['data-turn'])))
 check('a running turn is marked', textOf(turnRows()[2]).includes('进行中'), textOf(turnRows()[2]))

@@ -118,6 +118,12 @@
 └──────────────────────────┴───────────────────────────────────────────────┘
 ```
 
+### 输入框为什么"贴在"面板底部
+
+外壳里输入框**不是对话页签的一部分**，而是所有页签的兄弟节点（`ConversationContent` 在同一个 `scrollBody` 里渲染 `<Views/>` 与 composer 座位，active 阶段座位是 `position:sticky;bottom:0`）。但对**自带滚动条的全高视图**（轨迹、以及本插件的两个页签），外壳提供了开关 `data-conversation-composer-overlay`：加上它，会话的滚动体变成裁剪盒，输入框座位改成 `position:absolute;bottom:0` **浮在视图底部**；同时视图必须自己让出底部空间 —— 外壳把座位实时高度发布为 `--dsh-composer-height`。
+
+本插件的两个页签都取了这个契约：根节点带 `data-conversation-composer-overlay`，并声明 `--dshdv-bottom-clearance: calc(var(--dsh-composer-height, 152px) + 16px)`，每个内部滚动区用它做 `padding-bottom`（与 `ui-trajectory` 的做法一致）。**缺任何一半都会坏**：只有属性没让位 → 最后一行被浮起的输入框压住；只有让位没属性 → 在并不存在浮动输入框的地方空出一块。测试把两半都钉住了。
+
 ## 它为什么长这样
 
 **两个视图页签，不是新开一栏。** 轨迹视图本来就占满会话区中栏，所以「轨迹旁边的 diff」就是轨迹的兄弟页签，而不是新的一栏。外壳已经有这个座位：`conversation.view`（`DefaultConversationViews` 一次只渲染一个条目）。插件往这个列表里加两项（`diff` / `turns`），就白拿了页签条、会话作用域和生命周期；卸载即完全消失，没有任何 DOM 手术。
@@ -207,7 +213,7 @@ dsh plugin add link:F:/deepseek_harness_workspace/dsh-diff-view
 
 ```bash
 node tools/test-host.mjs      # 127 项：解析器对真实 git 输出、路由行为、会话折叠与兜底、围栏
-node tools/smoke-client.mjs   # 208 项：契约、注册、渲染、交互、失败态
+node tools/smoke-client.mjs   # 212 项：契约、注册、渲染、交互、失败态
 npm test                      # 两个都跑
 ```
 

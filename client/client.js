@@ -308,7 +308,17 @@ window.__ModuleLoader__.load({
 		 * ------------------------------------------------------------------ */
 
 		var STYLES = [
-			'.dshdv-root{display:flex;flex-direction:column;height:100%;min-height:0;color:var(--dsw-alias-label-primary,#1b1f24);background:var(--dsw-alias-bg-base,#fff);font-size:var(--dsh-content-font-size-secondary,13px);line-height:1.5}',
+			/* The tab host.
+			 *
+			 * Both views are full-height panes with their own scrollers — the shape
+			 * the shell's trajectory view has — so they take the shell's own composer
+			 * contract: `data-conversation-composer-overlay` on the root turns the
+			 * conversation's scroll body into a clipping box and floats the composer
+			 * seat over this pane's bottom instead of stacking it after the pane in
+			 * one shared scroller. The shell publishes the seat's live height as
+			 * `--dsh-composer-height`, and the view owes it the clearance — see
+			 * `--dshdv-bottom-clearance` below, exactly as `ui-trajectory` does it. */
+			'.dshdv-root{display:flex;flex-direction:column;height:100%;min-height:0;width:100%;box-sizing:border-box;overflow:hidden;color:var(--dsw-alias-label-primary,#1b1f24);background:var(--dsw-alias-bg-layer-1,#fff);font-size:var(--dsh-content-font-size-secondary,13px);line-height:1.5;--dshdv-bottom-clearance:calc(var(--dsh-composer-height, 152px) + 16px)}',
 			'.dshdv-bar{display:flex;align-items:center;gap:8px;padding:6px 12px;border-bottom:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.08));flex:none;min-height:38px;box-sizing:border-box}',
 			'.dshdv-tabs{display:inline-flex;padding:2px;gap:2px;border-radius:var(--dsw-radius-sm,6px);background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}',
 			'.dshdv-tab{border:0;background:transparent;color:var(--dsw-alias-label-secondary,#5b636e);font:inherit;font-size:12px;line-height:18px;padding:3px 10px;border-radius:var(--dsw-radius-sm,6px);cursor:pointer}',
@@ -482,6 +492,9 @@ window.__ModuleLoader__.load({
 			'.dshdv-splitCell[data-empty="true"]{background:transparent}',
 			'.dshdv-status{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;height:100%;padding:24px;text-align:center;color:var(--dsw-alias-label-secondary,#5b636e);font-size:var(--dsh-content-font-size-secondary,13px)}',
 			'.dshdv-status p{margin:0;max-width:44ch;line-height:1.6}',
+			/* Every scrolling region a pane can hold ends above the floating composer:
+			 * the shell's own trajectory ledger reserves the same band. */
+			'.dshdv-listBody,.dshdv-scroll,.dshdv-tvListBody,.dshdv-tvSaid,.dshdv-tvFileList{padding-bottom:var(--dshdv-bottom-clearance)}',
 			'.dshdv-note{padding:6px 12px;background:var(--dsw-alias-bg-layer-2,rgba(0,0,0,.03));color:var(--dsw-alias-label-secondary,#5b636e);font-size:12px;border-bottom:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.06))}',
 			'.dshdv-sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}',
 			'@media (max-width: 720px){.dshdv-list{flex-basis:200px}}',
@@ -1907,7 +1920,7 @@ window.__ModuleLoader__.load({
 					state.deleted > 0 ? h('span', { className: 'dshdv-del' }, '−' + state.deleted) : null),
 				selectedRow !== undefined && selectedRow.open === true ? h('span', { className: 'dshdv-tvTag' }, t('turns.open')) : null);
 
-			return h('div', { className: 'dshdv-root', 'data-dsh-diff-turns': '' },
+			return h('div', { className: 'dshdv-root', 'data-dsh-diff-turns': '', 'data-conversation-composer-overlay': '' },
 				h('div', { className: 'dshdv-tv' },
 					h('div', { className: 'dshdv-tvList' },
 						h('div', { className: 'dshdv-tvListBody', role: 'listbox', 'aria-label': t('turns.label.turn') }, listBody)),
@@ -2451,7 +2464,7 @@ window.__ModuleLoader__.load({
 			}
 			var detailPane = h('div', { className: 'dshdv-body' }, detailBody);
 
-			return h('div', { className: 'dshdv-root', 'data-dsh-diff-view': state.scope },
+			return h('div', { className: 'dshdv-root', 'data-dsh-diff-view': state.scope, 'data-conversation-composer-overlay': '' },
 				h('div', { className: 'dshdv-bar' },
 					h('div', { className: 'dshdv-tabs', role: 'tablist', 'aria-label': t('view.label') },
 						h('button', {
