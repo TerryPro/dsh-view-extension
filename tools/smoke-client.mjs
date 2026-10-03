@@ -1102,9 +1102,11 @@ const unifiedRule = /^\.dshdv-line\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
 check('diff lines use the shell markdown code font', unifiedRule.includes('var(--dsw-font-markdown-code-block'), unifiedRule)
 check('wrap is the shell attribute, not a row class', styles.includes('.dshdv-code[data-code-wrap="true"] .dshdv-line'), 'wrap rule')
 const bubbleRule = /^\.dshdv-tvBubble\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
-check('the question bubble uses the shell bubble fill', bubbleRule.includes('var(--dsw-specific-bubble'), bubbleRule)
-check('the question bubble uses the shell bubble radius', bubbleRule.includes('var(--dsw-radius-xl'), bubbleRule)
-check('the question bubble follows the body font axis', bubbleRule.includes('--dsh-content-font-size') && bubbleRule.includes('--dsh-content-font-delta'), bubbleRule)
+const askBubbleFlat = /^\.dshdv-tvBubble\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
+/* The question is a panel's content now, not a chat bubble: no fill and no radius,
+ * because both came with the padding that pushed its first word right of the title. */
+check('the question carries no bubble chrome inside its panel', !askBubbleFlat.includes('--dsw-specific-bubble') && !askBubbleFlat.includes('--dsw-radius-xl'), askBubbleFlat)
+check('and it still follows the shell body font axis', askBubbleFlat.includes('--dsh-content-font-size'), askBubbleFlat)
 
 /* The composer contract. A full-height pane that scrolls internally must take
  * `data-conversation-composer-overlay`, or the composer becomes a second stacked
@@ -1148,6 +1150,19 @@ const filesRuleNow = /^\.dshdv-tvFiles\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
 check('and the files pane takes what is left', filesRuleNow.includes('flex:1 1 auto'), filesRuleNow)
 /* Inside a titled panel the question is the panel's CONTENT: left-aligned, full
  * width, a quoted block rather than a chat bubble pushed to the right. */
+/* The first line of a panel's content lines up under the panel's own title: the body
+ * inset and the header inset are the same number, and nothing inside the body adds an
+ * indent of its own. Two numbers drifting apart is exactly how the question ended up
+ * starting ~20px right of the word "提问". */
+const paneHeadRule = /^\.dshdv-tvPaneHead\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
+const paneBodyRule = /^\.dshdv-tvPaneBody\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
+const insetOf = rule => (/padding:[^;}]*?(\d+)px\s*[;}]*$/mu.exec(rule) ?? /padding:[^;}]*?(\d+)px/gu.exec(rule) ?? [])[1] ?? ''
+const headInset = /padding:0 (\d+)px/u.exec(paneHeadRule)?.[1] ?? ''
+const bodyInset = /padding:\d+px (\d+)px/u.exec(paneBodyRule)?.[1] ?? ''
+check('the content inset equals the header inset', headInset !== '' && headInset === bodyInset, `header ${headInset}px vs body ${bodyInset}px`)
+const askBubbleInset = /^\.dshdv-tvBubble\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
+check('and the question carries no inset of its own inside the panel', askBubbleInset.includes('padding:0'), askBubbleInset)
+void insetOf
 const askRowRule = /^\.dshdv-tvAskRow\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
 check('the question aligns left, like the content of a panel', askRowRule.includes('align-items:flex-start'), askRowRule)
 const askBubbleRule = /^\.dshdv-tvBubble\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''

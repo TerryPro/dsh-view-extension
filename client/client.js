@@ -630,7 +630,10 @@ window.__ModuleLoader__.load({
 			/* A panel's own header: the same 26px label row the file panes use, so the two
 			 * halves read as siblings rather than as one document. */
 			'.dshdv-tvPaneHead{display:flex;align-items:center;gap:6px;flex:none;height:26px;padding:0 12px;color:var(--dsw-alias-label-tertiary,#8b939e);font-size:11px}',
-			'.dshdv-tvPaneBody{flex:1 1 auto;min-height:0;overflow-y:auto;padding:10px 16px}',
+			/* 12px, exactly what the header above uses: the first line of a panel's content has
+			 * to line up under the panel's own title, and any extra inset reads as an indent
+			 * nobody asked for. */
+			'.dshdv-tvPaneBody{flex:1 1 auto;min-height:0;overflow-y:auto;padding:10px 12px}',
 			'.dshdv-tvSaidBlock+.dshdv-tvSaidBlock{margin-top:14px}',
 			/* The question is the shell's own user bubble: right-aligned, on
 			 * `--dsw-specific-bubble`, at `--dsw-radius-xl`, sized by the body axis
@@ -639,7 +642,7 @@ window.__ModuleLoader__.load({
 			 * right-aligned line inside a titled pane reads as a stray element far from its own
 			 * header, with the empty space below it looking like a bug. */
 			'.dshdv-tvAskRow{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0}',
-			'.dshdv-tvBubble{max-width:100%;background:var(--dsw-specific-bubble,#eef3ff);border-radius:var(--dsw-radius-xl,20px);padding:10px 16px;font-size:var(--dsh-content-font-size,14px);line-height:calc(22px + var(--dsh-content-font-delta,0px));color:var(--dsw-alias-label-primary,#1b1f24);white-space:pre-wrap;word-break:break-word}',
+			'.dshdv-tvBubble{max-width:100%;background:transparent;border-radius:0;padding:0;font-size:var(--dsh-content-font-size-secondary,13px);line-height:1.7}',
 			'.dshdv-tvAskText{display:block}',
 			'.dshdv-tvInjected{align-self:flex-start;color:var(--dsw-alias-label-tertiary,#8b939e);font-size:var(--dsh-content-font-size-secondary,13px)}',
 			/* The answer is the shell's own Markdown renderer; this only places it. */
