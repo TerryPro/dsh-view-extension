@@ -363,7 +363,7 @@ window.__ModuleLoader__.load({
 				'error.forbidden': '请求被拒绝',
 				'turns.openInGit': '在 Git 浏览中打开',
 				'turns.commitShort': '提交 {short}',
-				'diff.reconstructed': '此对比由 git 历史重建（记录器已不持有它）',
+				'diff.reconstructed': 'git历史重建',
 			},
 			en: {
 				'view.label': 'Changes',
@@ -533,7 +533,7 @@ window.__ModuleLoader__.load({
 				'error.forbidden': 'The request was refused',
 				'turns.openInGit': 'Open in Git browser',
 				'turns.commitShort': 'commit {short}',
-				'diff.reconstructed': 'Reconstructed from git history (the recorder no longer holds it)',
+				'diff.reconstructed': 'from git history',
 			},
 		};
 
@@ -932,7 +932,7 @@ window.__ModuleLoader__.load({
 			 * the shell's own trajectory ledger reserves the same band. */
 			'.dshdv-listBody,.dshdv-scroll,.dshdv-tvListBody,.dshdv-tvSaid,.dshdv-tvFileList{padding-bottom:var(--dshdv-bottom-clearance)}',
 			'.dshdv-note{padding:6px 12px;background:var(--dsw-alias-bg-layer-2,rgba(0,0,0,.03));color:var(--dsw-alias-label-secondary,#5b636e);font-size:12px;border-bottom:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.06))}',
-			'.dshdv-noteReconstructed{color:var(--dsw-alias-state-info-primary,#4a7dba);font-style:italic}',
+			'.dshdv-tvReconstructed{margin-left:8px;font-size:11px;font-style:italic;color:var(--dsw-alias-state-info-primary,#4a7dba)}',
 			'.dshdv-tvCommitLink{margin-left:auto;font-size:11px;color:var(--dsw-alias-label-tertiary,#8b939e);cursor:pointer;white-space:nowrap}',
 			'.dshdv-tvCommitLink:hover{color:var(--dsw-alias-state-business-primary,#2563eb);background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.05))}',
 			'.dshdv-tvCommitText{font-family:var(--ds-font-family-code,monospace);font-size:11px}',
@@ -2877,6 +2877,12 @@ window.__ModuleLoader__.load({
 					format(t('turns.fileCount'), { count: String(state.files.length) }),
 					state.added > 0 ? h('span', { className: 'dshdv-add' }, '+' + state.added) : null,
 					state.deleted > 0 ? h('span', { className: 'dshdv-del' }, '−' + state.deleted) : null),
+				/* The git-reconstruction marker lives here, on the turn header, not in the
+				 * diff body: it describes where this turn's comparison came from, which is a
+				 * fact about the whole turn rather than the one file on screen. */
+				state.diff !== null && state.diff.reconstructed === true
+					? h('span', { className: 'dshdv-tvReconstructed' }, t('diff.reconstructed'))
+					: null,
 				selectedRow !== undefined && selectedRow.open === true ? h('span', { className: 'dshdv-tvTag' }, t('turns.open')) : null,
 				/* The checkpoint commit link: visible only when this turn has one, so the
 				 * reader can jump to the Git browser and see the same content as a commit. */
@@ -3159,10 +3165,11 @@ window.__ModuleLoader__.load({
 			if (diff.kind === 'binary') return h('div', { className: 'dshdv-status' }, h('p', null, t('diff.binary')));
 			if (diff.kind === 'oversized') return h('div', { className: 'dshdv-status' }, h('p', null, t('diff.oversized')));
 			var hunks = Array.isArray(diff.hunks) ? diff.hunks : [];
+			/* The created/deleted banners are dropped: the A/D status letter already
+			 * names it in the file list, and a whole-file add/remove is self-evident in
+			 * the rows. Only "no content change" is a fact the rows cannot show. */
 			var note = null;
-			if (diff.before === false) note = 'diff.created';
-			else if (diff.after === false) note = 'diff.deleted';
-			else if (hunks.length === 0) note = 'diff.unchanged';
+			if (hunks.length === 0) note = 'diff.unchanged';
 			var budget = budgetedHunks(hunks);
 			if (hunks.length === 0) {
 				return h('div', { className: 'dshdv-status' },
@@ -3172,7 +3179,6 @@ window.__ModuleLoader__.load({
 			var body = [];
 			if (note !== null) body.push(h('p', { key: 'note', className: 'dshdv-note', 'data-diff-note': note }, t(note)));
 			if (diff.coarse === true) body.push(h('p', { key: 'coarse', className: 'dshdv-note' }, t('diff.coarse')));
-			if (diff.reconstructed === true) body.push(h('p', { key: 'reconstructed', className: 'dshdv-note dshdv-noteReconstructed' }, t('diff.reconstructed')));
 			if (budget.truncated) body.push(h('p', { key: 'cut', className: 'dshdv-note' }, format(t('diff.truncated'), { count: MAX_RENDERED_LINES })));
 			budget.hunks.forEach(function (hunk, index) {
 				body.push(props.split && !single

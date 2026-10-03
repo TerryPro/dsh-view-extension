@@ -680,7 +680,7 @@ async function main() {
   ok(byTurn[3]?.open === true && byTurn[1]?.open === false, 'a turn without an end is still open', JSON.stringify([byTurn[3]?.open, byTurn[1]?.open]))
   ok(byTurn[3]?.prompt === null && byTurn[3]?.files === 0, 'an open turn with nothing in it is still listed', JSON.stringify(byTurn[3]))
   ok(byTurn[1]?.files === 2 && byTurn[1]?.added === 2, 'the listing counts the files each turn changed', JSON.stringify([byTurn[1]?.files, byTurn[1]?.added]))
-  ok(byTurn[2]?.files === 4 && byTurn[2]?.deleted === 4, 'and their line counts, log-derived files included', JSON.stringify([byTurn[2]?.files, byTurn[2]?.deleted]))
+  ok(byTurn[2]?.files === 2 && byTurn[2]?.deleted === 4, 'and their line counts, recorder-only now that the log-derived source is cancelled', JSON.stringify([byTurn[2]?.files, byTurn[2]?.deleted]))
   ok(byTurn[1]?.seq === 1 && byTurn[1]?.time === 1_000, 'a turn names where it starts in the log', JSON.stringify([byTurn[1]?.seq, byTurn[1]?.time]))
   // A turn the log describes as changed-only (no `turn/start`) still appears,
   // which is what keeps a compacted log's recorder records reachable.
@@ -688,7 +688,7 @@ async function main() {
 
   const turnTwo = await callRoute(turnRoute, '/api/dsh-diff/turn?sessionId=fixture&turn=2')
   ok(turnTwo.status === 200 && turnTwo.body?.turn === 2, 'one turn answers 200', JSON.stringify(turnTwo.body?.error))
-  ok(turnTwo.body?.files?.length === 4, 'the detail lists that turn\'s files only', JSON.stringify(turnTwo.body?.files?.map(file => file.path)))
+  ok(turnTwo.body?.files?.length === 2, 'the detail lists that turn\'s recorder files only', JSON.stringify(turnTwo.body?.files?.map(file => file.path)))
   const detailByPath = Object.fromEntries((turnTwo.body?.files ?? []).map(file => [file.path, file]))
   ok(detailByPath['src/keep.txt']?.at?.seq === 10, 'a recorded file carries the coordinate of its comparison', JSON.stringify(detailByPath['src/keep.txt']?.at))
   ok(detailByPath['src/keep.txt']?.status === 'modified', 'and the status derived for that turn', String(detailByPath['src/keep.txt']?.status))
@@ -699,7 +699,7 @@ async function main() {
   ok(firstTurn.body?.files?.some(file => file.path.endsWith('derived.js')) === false, 'a turn lists only what IT changed', JSON.stringify(firstTurn.body?.files?.map(file => file.path)))
   const derivedTurnTwo = await callRoute(turnRoute, '/api/dsh-diff/turn?sessionId=fixture&turn=2')
   const derivedRow = (derivedTurnTwo.body?.files ?? []).find(file => file.path === derivedPath)
-  ok(derivedRow?.derived === true && derivedRow?.at === null, 'a log-derived file is listed without a comparison coordinate', JSON.stringify(derivedRow))
+  ok(derivedRow === undefined, 'the cancelled log-derived source no longer lists files in a turn', JSON.stringify(derivedRow))
 
   const badTurn = await callRoute(turnRoute, '/api/dsh-diff/turn?sessionId=fixture&turn=nope')
   ok(badTurn.status === 400 && badTurn.body?.error?.code === 'diff/bad-request', 'a turn must be a positive integer', JSON.stringify(badTurn.body))
@@ -878,6 +878,14 @@ async function main() {
   /* A file the commit did NOT touch returns undefined. */
   const noDiff = await git.diffTurnFile({ root: fixture.root, git: { subprocess, executable }, sha: turnSha, path: 'nonexistent.txt', signal })
   ok(noDiff === undefined, 'a file the commit did not touch yields undefined', String(noDiff))
+
+  /* The per-turn view reads a committed turn straight from git, with no recorder
+   * record at all — this is the git-as-single-source-of-truth behaviour. */
+  const turn42 = await callRoute(turnRoute, '/api/dsh-diff/turn?sessionId=fixture&turn=42')
+  ok(turn42.status === 200, 'a committed turn answers 200 even with no recorder record', JSON.stringify(turn42.body?.error))
+  ok((turn42.body?.files ?? []).some(file => file.path === 'reconstructed.txt'), 'its file list comes from the checkpoint commit', JSON.stringify(turn42.body?.files?.map(file => file.path)))
+  ok(turn42.body?.sha === turnSha, 'and it names the commit it read from', String(turn42.body?.sha))
+  ok((turn42.body?.files ?? []).every(file => file.at?.turn === 42 && file.at?.seq === undefined), 'each file carries a turn-only coordinate', JSON.stringify(turn42.body?.files?.map(file => file.at)))
 
   // -- cleanup --------------------------------------------------------------
   await rm(fixture.root, { recursive: true, force: true })

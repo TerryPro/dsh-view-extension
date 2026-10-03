@@ -1254,7 +1254,7 @@ console.log(`  ·  one click: ${rowRenders} FileRow renders, ${rowBailouts} memo
 check('selecting a row reads that file', requests.some(entry => entry.url === FILE_UNTRACKED), JSON.stringify(requests.map(entry => entry.url)))
 check('the new comparison replaces the old one', textOf(tree).includes('fresh'), textOf(tree))
 const notedLines = findAll(tree, node => node.props !== undefined && node.props['data-diff-note'] !== undefined)
-check('a new file is labelled as created', notedLines.length === 1 && notedLines[0].props['data-diff-note'] === 'diff.created', JSON.stringify(notedLines.map(node => node.props['data-diff-note'])))
+check('a new file shows no redundant created banner (the A letter already names it)', notedLines.length === 0, JSON.stringify(notedLines.map(node => node.props['data-diff-note'])))
 
 // Split view is a local layout choice, and a one-sided comparison ignores it.
 const splitButton = findAll(tree, node => node.type === 'button' && node.props !== undefined && node.props['data-dsh-diff-split'] !== undefined)[0]
@@ -1727,7 +1727,7 @@ check('a truncated text is noted', textOf(turnTree).includes('内容较长'), te
 check('the truncated prompt is shown as far as it goes', textOf(turnTree).includes('第一轮'), textOf(turnTree))
 check('that turn\'s own file is listed', turnFileRows().length === 1 && turnFileRows()[0].props['data-path'] === 'src/early.txt', JSON.stringify(turnFileRows().map(row => row.props['data-path'])))
 check('and read at its own turn', requests.some(entry => entry.url === TURN_FILE_ONE), JSON.stringify(requests.map(entry => entry.url)))
-check('an addition-only comparison shows its created note', findAll(turnTree, node => node.props?.['data-diff-note'] === 'diff.created').length === 1, JSON.stringify(findAll(turnTree, node => node.props?.['data-diff-note'] !== undefined).map(node => node.props['data-diff-note'])))
+check('an addition-only comparison no longer shows a created banner', findAll(turnTree, node => node.props?.['data-diff-note'] === 'diff.created').length === 0, JSON.stringify(findAll(turnTree, node => node.props?.['data-diff-note'] !== undefined).map(node => node.props['data-diff-note'])))
 check('the comparison carries the shell\'s code-wrap attribute', findAll(turnTree, node => node.props?.['data-code-wrap'] !== undefined).length >= 1)
 
 // A failed turn list is the list's own state, with a way back.
