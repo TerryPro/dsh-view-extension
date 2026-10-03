@@ -287,6 +287,28 @@ check('the ghosted textarea keeps a visible caret', ...)   // 字形透明但光
 - 几何值放在容器的 CSS 变量上（`--dshdv-left-w`、`--dshdv-left-split`）：拖动时**每次 pointermove 只写一个变量，不触发 React 渲染**，松手时才落一次状态并持久化（`dsh-diff-view.leftWidth` / `.leftSplit`）。
 - 上下的比例**按百分比存**，所以改窗口大小不会把布局弄坏；宽度按像素存，并有上下限（180–720px，且不超过容器的 70%）。
 - 单位混用是这一版的真实 bug：第一版把"像素位移"加到"百分比"上，分隔条会跳到荒谬的值 —— 现在手势内部一律用像素，只在存储时换算成比例。
+## 一条全局约定：行不许贴在一起（以及 tooltip 不许复述那一行）
+
+同一个问题我修了三次才意识到它是**一条约定**，而不是三个 bug：
+
+| 实例 | 现象 |
+|---|---|
+| 提交行 | 两行文字贴在一起，悬停/选中底色连成一块；tooltip 复述主题、盖住下一行 |
+| 浏览器的文件行 | 同上；tooltip 复述状态词「修改」，而 `M` 就在行上 |
+| 文件树 / 逐轮的文件行 | 同样贴在一起 |
+
+约定，写进 CSS：
+
+```css
+.dshdv-gitHistory .dshdv-listBody,
+.dshdv-gitFiles   .dshdv-listBody,
+.dshdv-fvLevel,
+.dshdv-tvFileList   { display:flex; flex-direction:column; gap:2~3px }
+```
+
+配套的第二条：**tooltip 只放行上挤不下的东西**（完整路径 / 目录 / 绝对时间 / 分支装饰），放行上已有的内容不只是冗余 —— 那把 tooltip 会变宽，然后**遮住你正要读的下一行**。文件树因此这样处理：行上显示的是名字、层级已经说明了位置，所以 hover 只补**目录**，根目录下的文件**干脆没有 tooltip**。
+
+护栏是一组：对四个列表逐个断言"有 gap"，并在真实渲染上断言"根级行没有 tooltip、嵌套行的 tooltip 只是目录"。
 ## 空窗格不该是滚动容器
 
 截图里的现象：窗格已经空了（"当前范围没有改动"），右侧却仍有一条滚动条槽。成因是**真的溢出**，不是观感问题：
@@ -439,7 +461,7 @@ dsh plugin add link:F:/deepseek_harness_workspace/dsh-diff-view
 
 ```bash
 node tools/test-host.mjs      # 176 项：解析器对真实 git 输出、路由行为、会话折叠与兜底、围栏
-node tools/smoke-client.mjs   # 312 项：契约、注册、渲染、交互、失败态
+node tools/smoke-client.mjs   # 318 项：契约、注册、渲染、交互、失败态
 npm test                      # 两个都跑
 ```
 

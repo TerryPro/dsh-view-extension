@@ -2159,6 +2159,26 @@ check('each icon names itself for a reader who hovers or listens', modeIcons.eve
 check('and the copy survives a shell dictionary frozen at an older bundle', JSON.stringify(modeIcons.map(node => node.props.title)) === JSON.stringify(['预览', '并排', '编辑']), JSON.stringify(modeIcons.map(node => node.props.title)))
 fileTree = await showFiles()
 
+console.log('\nrow rhythm (every list in the plugin)')
+/* One convention rather than three patches: a list of rows never lets its rows
+ * touch. Two lines of text read as a single slab otherwise, and a hover fill that
+ * touches its neighbour looks like it spans two entries. Checked as RULES, because
+ * spacing is exactly what a DOM assertion cannot see. */
+const spread = (selector) => {
+  const rule = new RegExp(`^${selector.replace(/[.[\]$^*+?(){}|\\]/gu, '\\$&')}\\{([^}]*)\\}`, 'mu').exec(styles)?.[1] ?? ''
+  return { rule, ok: rule.includes('gap:') || rule.includes('row-gap:') }
+}
+for (const selector of ['.dshdv-gitHistory .dshdv-listBody', '.dshdv-gitFiles .dshdv-listBody', '.dshdv-fvLevel', '.dshdv-tvFileList']) {
+  const checked = spread(selector)
+  check(`its rows are spaced: ${selector}`, checked.ok, checked.rule)
+}
+/* And the rule that goes with the air: a tooltip never repeats the row it belongs
+ * to, because a tooltip as wide as its row covers the row below. In the tree that
+ * means the directories only — a root-level file has nothing to add. */
+const treeRowsNow = findAll(fileTree, node => node.props?.['data-kind'] !== undefined)
+check('a root-level tree row carries no tooltip at all', treeRowsNow.filter(node => node.props['data-path'].indexOf('/') === -1).every(node => node.props.title === undefined), JSON.stringify(treeRowsNow.filter(node => node.props['data-path'].indexOf('/') === -1).map(node => [node.props['data-path'], node.props.title])))
+check('a nested tree row names only its directories', treeRowsNow.filter(node => node.props['data-path'].indexOf('/') !== -1).every(node => typeof node.props.title === 'string' && !String(node.props.title).endsWith(String(node.props['data-path']).split('/').pop())), JSON.stringify(treeRowsNow.filter(node => node.props['data-path'].indexOf('/') !== -1).map(node => [node.props['data-path'], node.props.title])))
+
 console.log('\nunmount')
 unmount()
 const cleanups = []

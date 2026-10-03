@@ -623,7 +623,7 @@ window.__ModuleLoader__.load({
 			'.dshdv-tvFilesHead{display:flex;align-items:center;gap:8px;flex:none;height:32px;padding:0 12px;border-bottom:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.08))}',
 			'.dshdv-tvFilesHead .dshdv-tvLabel{margin:0}',
 			'.dshdv-tvFilesBody{display:flex;flex:1 1 auto;min-height:0;min-width:0}',
-			'.dshdv-tvFileList{flex:0 0 190px;min-width:0;overflow-y:auto;padding:6px 0 6px 6px;border-right:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.08))}',
+			'.dshdv-tvFileList{display:flex;flex-direction:column;gap:2px;flex:0 0 190px;min-width:0;overflow-y:auto;padding:6px 0 6px 6px;border-right:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.08))}',
 			'.dshdv-tvFile{display:flex;align-items:center;gap:6px;width:100%;border:0;background:transparent;text-align:left;font:inherit;font-size:12px;line-height:18px;color:var(--dsw-alias-label-primary,#1b1f24);padding:5px 7px;border-radius:var(--dsw-radius-md,12px);cursor:pointer}',
 			'.dshdv-tvFile:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}',
 			'.dshdv-tvFile[aria-selected="true"]{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}',
@@ -642,6 +642,10 @@ window.__ModuleLoader__.load({
 			'.dshdv-fvHeader{display:flex;align-items:center;gap:4px;flex:0 0 auto;box-sizing:border-box;height:38px;padding:0 6px 0 16px;border-bottom:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.08))}',
 			'.dshdv-fvHeaderPath{flex:1 1 auto;min-width:0;margin-right:12px;font-size:var(--dsh-content-font-size-secondary,13px)}',
 			'.dshdv-fvTreeBody{flex:1 1 auto;min-height:0;overflow-y:auto;margin-right:2px;padding:8px 0 8px 8px;scrollbar-gutter:stable}',
+			/* Rows never touch, at any level: a list of names with no air reads as one
+			 * block, and the hover fill then looks like it spans two entries. This is the
+			 * plugin's own convention, not the shell tree's abutting geometry. */
+			'.dshdv-fvLevel{display:flex;flex-direction:column;gap:2px}',
 			'.dshdv-fvRow{display:flex;align-items:center;gap:6px;width:100%;min-width:0;border:0;background:transparent;text-align:left;font:inherit;font-size:var(--dsh-content-font-size-secondary,13px);color:var(--dsw-alias-label-primary,#1b1f24);padding:5px 10px;border-radius:var(--dsw-radius-md,12px);cursor:pointer}',
 			'.dshdv-fvRow:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}',
 			'.dshdv-fvRow[aria-selected="true"]{background:var(--dsw-alias-interactive-bg-active,var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.08)))}',
@@ -4058,7 +4062,10 @@ window.__ModuleLoader__.load({
 							'aria-expanded': isDirectory ? open : undefined,
 							'aria-selected': isDirectory ? undefined : path === props.active,
 							'aria-disabled': entry.type === 'other' ? 'true' : undefined,
-							title: path,
+							/* The row shows the NAME and the tree says where it is, so a hover can
+							 * only add the directories above it. A root-level file gets none: a
+							 * tooltip repeating the row is a tooltip on top of the row below. */
+							title: depth === 0 ? undefined : path.slice(0, Math.max(0, path.length - entry.name.length - 1)),
 							style: { paddingLeft: String(10 + depth * 18) + 'px' },
 							onClick: function () {
 								props.markActive();
