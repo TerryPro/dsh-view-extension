@@ -1335,6 +1335,61 @@ window.__ModuleLoader__.load({
 		 * is no longer available.
 		 * ------------------------------------------------------------------ */
 
+		/**
+		 * What one list row shows — the fingerprint a silent refresh compares.
+		 *
+		 * A tick may only re-read a turn whose visible facts moved, and those facts
+		 * are exactly these fields: its counts, whether it is still running, and the
+		 * question and answer previews the row carries. Comparing anything else (a
+		 * synthesized stand-in, say) compares nothing at all, which is how a silent
+		 * refresh turns into a full re-read and re-render every few seconds.
+		 */
+		function rowPrint(row) {
+			if (row === undefined) return '';
+			return [
+				row.turn, row.open === true ? 'open' : 'done', row.files, row.added, row.deleted,
+				row.prompt === null || row.prompt === undefined ? '' : row.prompt.text,
+				row.answer === null || row.answer === undefined ? '' : row.answer.text,
+			].join('\u0000');
+		}
+
+		/**
+		 * Fold a freshly read turn list into the one on screen.
+		 *
+		 * A row whose visible facts are unchanged keeps the PRECEDING object, so the
+		 * list a reader is looking at is not rebuilt by a refresh that found nothing
+		 * new. Same rule as the file list's own merge, for the same reason.
+		 */
+		function mergeRows(previous, incoming) {
+			var byTurn = new Map();
+			for (var at = 0; at < previous.length; at += 1) byTurn.set(previous[at].turn, previous[at]);
+			return incoming.map(function (row) {
+				var before = byTurn.get(row.turn);
+				return before !== undefined && rowPrint(before) === rowPrint(row) ? before : row;
+			});
+		}
+
+		/** Whether two question/answer records say the same thing. */
+		function sameSaid(left, right) {
+			if (left === right) return true;
+			if (left === null || left === undefined || right === null || right === undefined) return false;
+			return left.text === right.text && left.truncated === right.truncated
+				&& left.human === right.human && left.source === right.source && left.seq === right.seq;
+		}
+
+		/** Whether two changed-file lists describe the same files the same way. */
+		function sameFiles(left, right) {
+			if (left.length !== right.length) return false;
+			for (var at = 0; at < left.length; at += 1) {
+				var one = left[at];
+				var two = right[at];
+				if (one.path !== two.path || one.status !== two.status || one.added !== two.added || one.deleted !== two.deleted) return false;
+				if ((one.at === null || one.at === undefined) !== (two.at === null || two.at === undefined)) return false;
+				if (one.at !== null && one.at !== undefined && one.at.seq !== two.at.seq) return false;
+			}
+			return true;
+		}
+
 		/** The state the turn browser starts from. */
 		function turnsState() {
 			return {
@@ -1343,6 +1398,8 @@ window.__ModuleLoader__.load({
 				turns: [],
 				/** The turn in view. */
 				selected: null,
+				/** Fingerprint of the list row the held detail was read for. */
+				rowPrint: '',
 				open: false,
 				prompt: null,
 				answer: null,
@@ -1411,9 +1468,13 @@ window.__ModuleLoader__.load({
 				/**
 				 * Read the turn list, then the turn it selects.
 				 *
-				 * A silent read (the auto-refresh tick) never touches the turn in
-				 * view: its text is already on screen and a running turn's answer is
-				 * only interesting once it settles.
+				 * A silent read (the auto-refresh tick) is a no-op unless the turn in
+				 * view actually moved: the list merges by row fingerprint so unchanged
+				 * rows keep their identity, and the detail is re-read only when the
+				 * selected row's fingerprint differs from the one the held detail was
+				 * read for. An older turn can never change, so a tick while one is in
+				 * view costs one small list request and nothing else — no detail read,
+				 * no comparison read, no re-render.
 				 */
 				load: async function (sessionId, options) {
 					var silent = options !== undefined && options.silent === true;
@@ -1434,7 +1495,8 @@ window.__ModuleLoader__.load({
 						patch(Object.assign({ phase: 'error', error: result.failed, turns: [] }, emptyTurn()));
 						return;
 					}
-					var rows = Array.isArray(result.value.turns) ? result.value.turns : [];
+					var incoming = Array.isArray(result.value.turns) ? result.value.turns : [];
+					var rows = mergeRows(state.turns, incoming);
 					var keep = state.selected !== null && rows.some(function (row) { return row.turn === state.selected; });
 					/* The list reads oldest first, so "nothing chosen yet" means the
 					 * LATEST turn — a reader opening the tab wants the turn that just
@@ -1446,25 +1508,39 @@ window.__ModuleLoader__.load({
 						if (state.selected !== null) patch(emptyTurn());
 						return;
 					}
+					var row = rows.find(function (entry) { return entry.turn === selected; });
 					if (selected !== state.selected) {
 						await controller.selectTurn(sessionId, selected);
 						return;
 					}
-					// Same turn: refresh its detail only when its own numbers moved, so
-					// a running turn keeps up without re-reading an unchanged one.
-					var row = rows.find(function (entry) { return entry.turn === selected; });
-					var nextPrint = detailPrint(selected, row === undefined ? [] : [{ path: '', status: '', added: row.added, deleted: row.deleted }]);
-					if (!silent || nextPrint !== state.filePrint) {
-						await controller.selectTurn(sessionId, selected);
+					// Same turn: re-read only when what the reader can see moved.
+					if (!silent || state.detailPhase !== 'ready' || rowPrint(row) !== state.rowPrint) {
+						await controller.selectTurn(sessionId, selected, { refresh: true });
 					}
 				},
 
-				/** Show one turn: its question and answer, and its changed files. */
-				selectTurn: async function (sessionId, turn) {
+				/**
+				 * Show one turn: its question and answer, and its changed files.
+				 *
+				 * `refresh` means the SAME turn is being re-read because something it
+				 * shows moved (a running turn's answer grew, a file landed). Then
+				 * nothing already on screen is dropped: the comparison and the file
+				 * selection stay, every record whose content is unchanged keeps its
+				 * object, and the comparison is only re-read if the selected path left
+				 * the list. Blanking first is what made a tick cost a full rebuild of
+				 * the answer and the diff.
+				 */
+				selectTurn: async function (sessionId, turn, options) {
+					var refresh = options !== undefined && options.refresh === true && state.selected === turn;
 					var current = (detailGeneration += 1);
 					var started = epoch;
 					var stale = function () { return current !== detailGeneration || started !== epoch; };
-					patch({ selected: turn, detailPhase: 'loading', detailError: null, file: null, filePrint: undefined, diff: null, diffPath: undefined, diffPhase: 'idle', diffError: null });
+					if (refresh) {
+						/* Keep the pane: only the busy marker moves. */
+						patch({ detailPhase: state.detailPhase === 'ready' ? 'ready' : 'loading', detailError: null });
+					} else {
+						patch({ selected: turn, detailPhase: 'loading', detailError: null, file: null, filePrint: undefined, diff: null, diffPath: undefined, diffPhase: 'idle', diffError: null });
+					}
 					var result;
 					try {
 						result = await readJson(TURN_DETAIL_URL(sessionId, turn), undefined);
@@ -1479,20 +1555,35 @@ window.__ModuleLoader__.load({
 						return;
 					}
 					var value = result.value;
-					var files = Array.isArray(value.files) ? value.files : [];
+					var incoming = Array.isArray(value.files) ? value.files : [];
+					var files = refresh && sameFiles(state.files, incoming) ? state.files : incoming;
+					var prompt = refresh && sameSaid(state.prompt, value.prompt === undefined ? null : value.prompt)
+						? state.prompt
+						: (value.prompt === null || value.prompt === undefined ? null : value.prompt);
+					var answer = refresh && sameSaid(state.answer, value.answer === undefined ? null : value.answer)
+						? state.answer
+						: (value.answer === null || value.answer === undefined ? null : value.answer);
+					var row = state.turns.find(function (entry) { return entry.turn === turn; });
 					patch({
 						detailPhase: 'ready',
 						detailError: null,
 						open: value.open === true,
-						prompt: value.prompt === null || value.prompt === undefined ? null : value.prompt,
-						answer: value.answer === null || value.answer === undefined ? null : value.answer,
+						prompt: prompt,
+						answer: answer,
 						files: files,
 						added: value.added || 0,
 						deleted: value.deleted || 0,
 						filePrint: detailPrint(turn, files),
+						/* What the detail describes, so the next silent tick can tell
+						 * whether it still agrees with the row the reader sees. */
+						rowPrint: rowPrint(row),
 					});
-					var first = files.length > 0 ? files[0].path : null;
-					if (first !== null) await controller.selectFile(sessionId, first);
+					/* The file in view stays in view across a refresh; only a selection
+					 * that is no longer listed falls back to the first file. */
+					var keepPath = state.file !== null && files.some(function (file) { return file.path === state.file; })
+						? state.file
+						: (files.length > 0 ? files[0].path : null);
+					if (keepPath !== null) await controller.selectFile(sessionId, keepPath);
 				},
 
 				/** Read one changed file's comparison for the turn in view. */

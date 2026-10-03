@@ -1285,20 +1285,32 @@ function turnDetail(turn, files, prompt, answer, extra = {}) {
   }, extra)
 }
 
-responses = new Map([
-  [TURNS_LIST, turnListResponse],
-  [TURN_DETAIL(2), turnDetail(2, [
-    { path: 'src/keep.txt', display: 'src/keep.txt', status: 'modified', added: 4, deleted: 1, at: { turn: 2, seq: 9, index: 0 } },
-    { path: 'src/gone.txt', display: 'src/gone.txt', status: 'deleted', added: 0, deleted: 3, at: { turn: 2, seq: 9, index: 1 } },
-    { path: 'F:/ws/src/absolute.js', display: 'F:/ws/src/absolute.js', status: 'added', added: 0, deleted: 0, at: null, derived: true },
-  ], { text: '第二轮：把状态也算出来', truncated: false, human: true }, { text: MARKDOWN_ANSWER, truncated: false })],
-  [TURN_DETAIL(1), turnDetail(1, [
-    { path: 'src/early.txt', display: 'src/early.txt', status: 'added', added: 2, deleted: 0, at: { turn: 1, seq: 4, index: 1 } },
-  ], { text: '第一轮'.repeat(60), truncated: true, human: true }, { text: '先看座位。', truncated: false })],
-  [TURN_DETAIL(3), turnDetail(3, [], null, null, { open: true })],
-  [TURN_FILE, { ok: true, scope: 'session', path: 'src/keep.txt', kind: 'text', before: true, after: true, coarse: false, hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 2, lines: [' first', '+turn-two'] }] }],
-  [TURN_FILE_ONE, { ok: true, scope: 'session', path: 'src/early.txt', kind: 'text', before: false, after: true, coarse: false, hunks: [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 2, lines: ['+early', '+file'] }] }],
-])
+/**
+ * Install the turn browser's fixtures.
+ *
+ * Deliberately NOT `seedRoutes()`: that one covers the two tabs of the changes
+ * view and would leave every turn route answering 404, which the pane correctly
+ * renders as its error state — a mistake that reads like a product bug.
+ */
+function seedTurnRoutes() {
+  requests.length = 0
+  responses = new Map([
+    [TURNS_LIST, turnListResponse],
+    [TURN_DETAIL(2), turnDetail(2, [
+      { path: 'src/keep.txt', display: 'src/keep.txt', status: 'modified', added: 4, deleted: 1, at: { turn: 2, seq: 9, index: 0 } },
+      { path: 'src/gone.txt', display: 'src/gone.txt', status: 'deleted', added: 0, deleted: 3, at: { turn: 2, seq: 9, index: 1 } },
+      { path: 'F:/ws/src/absolute.js', display: 'F:/ws/src/absolute.js', status: 'added', added: 0, deleted: 0, at: null, derived: true },
+    ], { text: '第二轮：把状态也算出来', truncated: false, human: true }, { text: MARKDOWN_ANSWER, truncated: false })],
+    [TURN_DETAIL(1), turnDetail(1, [
+      { path: 'src/early.txt', display: 'src/early.txt', status: 'added', added: 2, deleted: 0, at: { turn: 1, seq: 4, index: 1 } },
+    ], { text: '第一轮'.repeat(60), truncated: true, human: true }, { text: '先看座位。', truncated: false })],
+    [TURN_DETAIL(3), turnDetail(3, [], null, null, { open: true })],
+    [TURN_FILE, { ok: true, scope: 'session', path: 'src/keep.txt', kind: 'text', before: true, after: true, coarse: false, hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 2, lines: [' first', '+turn-two'] }] }],
+    [TURN_FILE_ONE, { ok: true, scope: 'session', path: 'src/early.txt', kind: 'text', before: false, after: true, coarse: false, hunks: [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 2, lines: ['+early', '+file'] }] }],
+  ])
+}
+
+seedTurnRoutes()
 requests.length = 0
 unmount.disposeControllers = true
 unmount()
@@ -1419,6 +1431,85 @@ check('a pipe table becomes a real table', findAll(bareTree, node => node.type =
 check('no raw Markdown syntax is left in the prose', textOf(bareTree).includes('## ') === false && textOf(bareTree).includes('```') === false, textOf(bareTree))
 check('the answer text survives the fallback', textOf(bareTree).includes('改完了：两个文件。'), textOf(bareTree))
 check('the shell renderer is not used on this page', findAll(bareTree, node => node.props?.['data-markdown'] === '').length === 0)
+
+console.log('\nthe turn browser\'s refresh cost')
+/*
+ * The turn browser ticks on a timer like the changes tab, so it owes the same
+ * guarantee: a tick that finds nothing new must cost nothing but its list read —
+ * no detail read, no comparison read, and no element rebuilt. A "silent" tick
+ * that re-read every turn and re-blank the diff is exactly what made this pane
+ * feel slow: the trap was comparing the selected row against a synthesized
+ * stand-in, which can never be equal, so every tick took the slow path.
+ */
+const turnsRefresh = async () => {
+  const face = registrations[1].options.inject('sess-1')
+  const before = { elements: elementsCreated, requests: requests.length, notifications }
+  await face.controller.refresh('sess-1')
+  await settle(6)
+  return {
+    elements: elementsCreated - before.elements,
+    notifications: notifications - before.notifications,
+    requests: requests.length - before.requests,
+    urls: requests.slice(before.requests).map(entry => entry.url),
+  }
+}
+/** Re-render the turn tab into the tree the assertions read. */
+const showTurns = async () => {
+  turnTree = await rerender(React.createElement(TurnsView, Object.assign({}, viewProps, turnFace)))
+}
+
+seedTurnRoutes()
+unmount()
+turnTree = await render(React.createElement(TurnsView, Object.assign({}, viewProps, turnFace)))
+const idleTick = await turnsRefresh()
+await showTurns()
+check('a quiet tick reads only the turn list', idleTick.requests === 1 && idleTick.urls[0] === TURNS_LIST, JSON.stringify(idleTick.urls))
+check('a quiet tick re-reads no turn detail', idleTick.urls.some(url => url.includes('/api/dsh-diff/turn?') || url.includes('&turn=')) === false, JSON.stringify(idleTick.urls))
+check('a quiet tick re-reads no comparison', idleTick.urls.some(url => url.includes('/api/dsh-diff/file')) === false, JSON.stringify(idleTick.urls))
+check('a quiet tick publishes no state change', idleTick.notifications === 0, `${idleTick.notifications} store notifications`)
+check('a quiet tick builds nothing', idleTick.elements === 0, `${idleTick.elements} elements`)
+console.log(`  ·  one quiet tick: ${idleTick.requests} request, ${idleTick.notifications} store notifications, ${idleTick.elements} elements`)
+
+// An older turn cannot change, so a tick while one is in view reads only the list.
+const olderRow = findAll(turnTree, node => node.type === 'button' && node.props?.['data-turn'] === '1')[0]
+olderRow.props.onClick()
+await settle(4)
+turnTree = await rerender(React.createElement(TurnsView, Object.assign({}, viewProps, turnFace)))
+const oldTick = await turnsRefresh()
+check('an older turn costs only the list read', oldTick.requests === 1 && oldTick.elements === 0, JSON.stringify(oldTick.urls))
+
+// A RUNNING turn is the one case a tick must chase: its answer grows, and the
+// list's own preview is what says so.
+const growing = JSON.parse(JSON.stringify(turnListResponse))
+growing.turns[2].answer = { text: '第三轮：正在写', truncated: false }
+growing.turns[2].files = 1
+growing.turns[2].added = 3
+responses = new Map([
+  [TURNS_LIST, growing],
+  [TURN_DETAIL(3), turnDetail(3, [
+    { path: 'src/keep.txt', display: 'src/keep.txt', status: 'modified', added: 3, deleted: 0, at: { turn: 3, seq: 13, index: 0 } },
+  ], null, { text: '第三轮：正在写', truncated: false }, { open: true })],
+  [TURN_FILE, { ok: true, scope: 'session', path: 'src/keep.txt', kind: 'text', before: true, after: true, coarse: false, hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 2, lines: [' first', '+running'] }] }],
+])
+const newestRow = findAll(turnTree, node => node.type === 'button' && node.props?.['data-turn'] === '3')[0]
+newestRow.props.onClick()
+await settle(4)
+turnTree = await rerender(React.createElement(TurnsView, Object.assign({}, viewProps, turnFace)))
+const beforeGrowth = requests.length
+const grownTick = await turnsRefresh()
+check('a growing turn is re-read', grownTick.urls.some(url => url.includes('turn=3')) === true, JSON.stringify(grownTick.urls))
+check('and its answer is on screen', textOf(turnTree).includes('第三轮：正在写'), textOf(turnTree))
+/* The cost of a turn that moved: its own detail, plus the comparison of a file
+ * that just appeared in it. Nothing about any other turn, and no comparison it
+ * already had. */
+check('the grown tick re-reads only the running turn', grownTick.urls.every(url => url === TURNS_LIST || url.includes('turn=3') || url.includes('at=3%3A13%3A0')), JSON.stringify(grownTick.urls))
+check('the grown tick costs at most its own three reads', grownTick.urls.length <= 3, JSON.stringify(grownTick.urls))
+check('the grown tick leaves other turns alone', grownTick.urls.some(url => /turn=(1|2)\b/u.test(url)) === false, JSON.stringify(grownTick.urls))
+
+// A second tick with the SAME preview is quiet again: the detail now agrees with
+// the row, which is the state the broken comparison could never reach.
+const settledTick = await turnsRefresh()
+check('a settled turn goes quiet again', settledTick.requests === 1 && settledTick.elements === 0, JSON.stringify(settledTick.urls))
 
 console.log('\nunmount')
 unmount()
