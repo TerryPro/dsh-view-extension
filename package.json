@@ -39,21 +39,30 @@
   },
   "scripts": {
     "check": "node --check index.js && node --check lib/http.js && node --check lib/git.js && node --check lib/session.js && node --check lib/turns.js && node --check lib/commit.js && node --check lib/workspace.js && node --check lib/routes.js && node --check client/client.js && node tools/test-host.mjs && node tools/smoke-client.mjs",
-    "test": "node tools/test-host.mjs && node tools/smoke-client.mjs",
+    "test": "node tools/test-host.mjs && node tools/smoke-client.mjs && node tools/test-editor-chunk.mjs",
     "test:host": "node tools/test-host.mjs",
     "test:client": "node tools/smoke-client.mjs",
+    "test:editor": "node tools/test-editor-chunk.mjs",
     "build:editor": "node tools/build-editor.mjs"
   },
   "engines": {
     "node": ">=20"
   },
   "devDependencies": {
+    "@codemirror/lang-cpp": "^6.0.3",
     "@codemirror/lang-css": "^6.3.1",
+    "@codemirror/lang-go": "^6.0.1",
     "@codemirror/lang-html": "^6.4.12",
+    "@codemirror/lang-java": "^6.0.2",
     "@codemirror/lang-javascript": "^6.2.5",
     "@codemirror/lang-json": "^6.0.2",
     "@codemirror/lang-markdown": "^6.5.2",
+    "@codemirror/lang-php": "^6.0.2",
     "@codemirror/lang-python": "^6.2.1",
+    "@codemirror/lang-rust": "^6.0.2",
+    "@codemirror/lang-sql": "^6.10.0",
+    "@codemirror/lang-xml": "^6.1.0",
+    "@codemirror/lang-yaml": "^6.1.3",
     "@codemirror/language-data": "^6.5.2",
     "@codemirror/search": "^6.7.2",
     "codemirror": "^6.0.2",

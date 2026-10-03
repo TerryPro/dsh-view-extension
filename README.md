@@ -190,6 +190,20 @@ if (locales.has(localeKey(locale))) throw new Error(`locale namespace "${ns}" al
 2. 视图文案**走本插件自己的翻译器**（`inject` 里作为 `tr` 传入）—— 外壳字典缺哪个键，就用随这个包一起发布的字典兜住。这条对"以后再加键"同样有效。
 
 护栏是一条**构造出来的回归测试**：用一个 `t: key => key` 的"冻结字典"渲染，断言标签仍然读出 `预览 / 并排 / 编辑`。
+### 专业化的那几项（在外壳自己的词汇里）
+
+| 加了什么 | 说明 |
+|---|---|
+| **一套外壳主题** | 编辑器里每一个颜色都是 `--dsw-*` / `--ds-*` token（带字面兜底）：背景、正文、当前行、选区、光标、行号槽、折叠槽、搜索命中、搜索面板、补全弹层。所以它**跟着外壳的明暗主题走**，不是"住在窗格里的外人" |
+| **代码折叠** | `codeFolding()` + `foldGutter()` + `foldKeymap`（行号槽旁多一个折叠列） |
+| **自动补全** | `autocompletion({activateOnTyping})` —— 文档内词级补全 + 语法自带项。**没有语言服务器**，这是诚实的上限 |
+| **按文档推断缩进** | 4 空格 / 2 空格 / Tab 三种风格从文件自身读出来，而不是假定 |
+| **更多语法** | 从 6 组扩到 **14 组**：js/ts/jsx/tsx、json、html、css/scss/less、markdown、python、yaml、sql、xml/svg、c/cpp/h、java、go、php、rust |
+| **更顺手的键位** | `Ctrl+F` 搜索、`Mod-]` / `Mod-[` 缩进/反缩进、`Mod-s` 保存（仍走本插件的冲突检测）、Tab/Shift+Tab、补全与折叠键位 |
+
+产物从 591 KB 长到 **1036 KB**（多出来的几乎全是语法）。既然无法在浏览器里驱动它，我给**这个产物本身**写了检查（`npm run test:editor`，33 条）：以加载器的方式注册再取回，断言导出面、14 种路径的语法映射（含 `.gitignore` 这类无语法文件）、以及缩进推断的四种情况。
+
+> ⚠️ **分块需要应用重载**：外壳把插件文件**按路径缓存在内存里**（同一个 rev 返回的仍是旧内容，换 rev 直接 404），所以**刷新页面拿不到新分块** —— 要重启桌面应用。旧分块也能用，只是没有主题、折叠与新语法。
 ### 编辑器换成了 CodeMirror（懒加载分块 + 兜底）
 
 原来那套「textarea + 高亮叠加层 + 自绘行号槽」是**真编辑器缺席时的替代品**。现在接上了 CodeMirror 6，走的是加载器的**包内懒加载分块**机制：
@@ -496,8 +510,9 @@ dsh plugin add link:F:/deepseek_harness_workspace/dsh-diff-view
 ## 测试
 
 ```bash
-node tools/test-host.mjs      # 191 项：解析器对真实 git 输出、路由行为、会话折叠与兜底、围栏
-node tools/smoke-client.mjs   # 321 项：契约、注册、渲染、交互、失败态
+node tools/test-host.mjs      # 191 项
+node tools/test-editor-chunk.mjs  # 33 项（CodeMirror 分块产物：注册、导出面、语法映射、缩进推断）：解析器对真实 git 输出、路由行为、会话折叠与兜底、围栏
+node tools/smoke-client.mjs   # 321 项（兜底编辑器）：契约、注册、渲染、交互、失败态
 npm test                      # 两个都跑
 ```
 
