@@ -1,19 +1,19 @@
-dsh-diff-view: browse every file type, edit the ones that are editable
+dsh-diff-view: a button box must fit its label
 
-Follows the reference implementation's own call (DSH-better-sidebar
-builtins/viewers.tsx): the shell already ships read-only previews for images,
-PDFs, office documents, spreadsheets and text with zoom and auto-refresh, so
-this plugin yields those instead of re-drawing them, and keeps the two surfaces
-a previewer is not.
+`.dshdv-btn` was an ICON button: a fixed `width:28px`. Eleven text labels were
+later put on that same class (预览 / 编辑 / 高亮 / 重试 / 仍然覆盖 ...), so each
+label was squeezed into a one-character column -- the editor head, meant to be
+32px, became a ladder of letters and the path column was squeezed to nothing.
 
-- text (default) -> the editor, Ctrl/Cmd+S, conflict-checked save, highlight mode
-- markdown -> the shell's own MarkdownText, one toggle from editing
-- html -> a sandboxed iframe (sandbox="", no allow-scripts) on the raw route
-- everything else -> "open in the shell previewer" plus a download, handed over
-  as dsh-resource://file/session/<id>/<path> through sidebarRight.openResource;
-  a refused hand-off is reported where the action was taken
+The fix is one rule: `width:28px` -> `min-width:28px` + `white-space:nowrap`.
+An icon button still measures 28x28 (16px glyph + 6px padding each side); a text
+button now grows to the word it carries. The head uses `min-height` and its
+status keeps its own width, so a label can no longer dictate the row's height.
 
-New route /api/dsh-diff/raw serves bytes with a content type for the frame and
-the download, under the same containment check and cap as the text read.
+The old tests could not catch this: the harness has no layout engine, so no DOM
+assertion can see text wrap. The guards therefore check the RULES -- the button
+box must not fix a width, the label must not wrap, the head must not be sized by
+its content -- plus one that no header label renders as its own raw dictionary
+key.
 
-155 host checks, 287 client checks
+293 client checks

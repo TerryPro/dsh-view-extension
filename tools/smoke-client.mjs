@@ -1844,6 +1844,28 @@ check('and it went through the shell\'s code card', findAll(fileTree, node => no
  * plugin unloads — a stylesheet that belongs to nobody does not survive. */
 check('the stylesheet is tagged as this plugin\'s', styleNodes[0]?.attributes?.['data-plugin'] === 'dsh-diff-view', JSON.stringify(styleNodes[0]?.attributes))
 
+/* A button's box must fit its label. The class used to fix `width:28px`, so every
+ * text label was squeezed into a one-character column: the label wrapped, the row
+ * grew, and the editor head turned into a ladder of letters. The guard is on the
+ * RULE, because that is where the bug was. */
+const btnRule = /^\.dshdv-btn\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
+check('the button box grows with its label', btnRule.includes('min-width:28px') && !/(?<!min-)width:28px/u.test(btnRule), btnRule)
+check('a button label never wraps', btnRule.includes('white-space:nowrap'), btnRule)
+const fileHeadRule = /^\.dshdv-fvEditorHead\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
+check('the editor head cannot be forced taller by a wrapping label', fileHeadRule.includes('min-height:32px'), fileHeadRule)
+const fileStatusRule = /^\.dshdv-fvStatus\{([^}]*)\}/mu.exec(styles)?.[1] ?? ''
+check('the editor status keeps its own width', fileStatusRule.includes('white-space:nowrap'), fileStatusRule)
+
+/* And the labels themselves reach the reader translated, not as their own keys —
+ * a raw `files.mode.preview` in the header is a missing dictionary entry. */
+const modeLabels = findAll(fileTree, node => node.props?.['data-dsh-diff-files-edit-mode'] !== undefined
+  || node.props?.['data-dsh-diff-files-preview-mode'] !== undefined
+  || node.props?.['data-dsh-diff-files-highlight-toggle'] !== undefined)
+  .map(node => textOf(node))
+const fileLabels = findAll(fileTree, node => node.props?.['data-dsh-diff-files-open-shell'] !== undefined).map(node => textOf(node))
+check('header labels are translated, not raw keys', modeLabels.every(label => !label.includes('files.')), JSON.stringify(modeLabels))
+check('and so are the pane actions', fileLabels.every(label => !label.includes('files.')), JSON.stringify(fileLabels))
+
 console.log('\nunmount')
 unmount()
 const cleanups = []

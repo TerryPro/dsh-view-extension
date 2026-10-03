@@ -158,6 +158,20 @@
 
 本插件的两个页签都取了这个契约：根节点带 `data-conversation-composer-overlay`，并声明 `--dshdv-bottom-clearance: calc(var(--dsh-composer-height, 152px) + 16px)`，每个内部滚动区用它做 `padding-bottom`（与 `ui-trajectory` 的做法一致）。**缺任何一半都会坏**：只有属性没让位 → 最后一行被浮起的输入框压住；只有让位没属性 → 在并不存在浮动输入框的地方空出一块。测试把两半都钉住了。
 
+### 按钮的盒子必须装得下它的标签（一个真实缺陷的教训）
+
+`.dshdv-btn` 曾是**图标按钮**：固定 `width:28px`。后来我把文字标签（「预览」「编辑」「高亮」「重试」「仍然覆盖」…共 11 处）塞进同一个类，结果每个字被挤成一列 —— 编辑器头部本该 32px 高，变成了一竖排字母，路径列被压到 0 宽。
+
+改法只有一条 CSS：`width:28px` → **`min-width:28px` + `white-space:nowrap`**。图标按钮依然是 28×28（16px 图标 + 6+6 内边距），文字按钮则自己撑开。
+
+这个缺陷**测试当时抓不到**：harness 里没有布局引擎，DOM 断言看不见"字被挤成竖排"。所以护栏写在**规则**上而不是 DOM 上：
+
+```js
+check('the button box grows with its label', btnRule.includes('min-width:28px') && !/(?<!min-)width:28px/u.test(btnRule))
+check('a button label never wraps', btnRule.includes('white-space:nowrap'))
+check('the editor head cannot be forced taller by a wrapping label', fileHeadRule.includes('min-height:32px'))
+check('header labels are translated, not raw keys', ...)   // 原始键出现在界面上 = 字典缺条目
+```
 ### 各类文件怎么浏览、哪些能编辑
 
 参考 `DSH-better-sidebar` 的 `src/client/builtins/viewers.tsx`，它自己写了一句决定性的判断：
@@ -294,7 +308,7 @@ dsh plugin add link:F:/deepseek_harness_workspace/dsh-diff-view
 
 ```bash
 node tools/test-host.mjs      # 155 项：解析器对真实 git 输出、路由行为、会话折叠与兜底、围栏
-node tools/smoke-client.mjs   # 287 项：契约、注册、渲染、交互、失败态
+node tools/smoke-client.mjs   # 293 项：契约、注册、渲染、交互、失败态
 npm test                      # 两个都跑
 ```
 

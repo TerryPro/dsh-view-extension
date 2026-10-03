@@ -422,7 +422,13 @@ window.__ModuleLoader__.load({
 			/* The strip's icon button, copied from ui-sidebar-files FilesBody `.tool`:
 			 * a 28px box, `--dsw-radius-sm`, a 15px glyph, secondary ink that lifts to
 			 * primary over the shared interactive fill. */
-			'.dshdv-btn{display:inline-flex;flex:none;align-items:center;justify-content:center;width:28px;height:28px;padding:6px;border:0;border-radius:var(--dsw-radius-sm,6px);background:transparent;color:var(--dsw-alias-label-secondary,#5b636e);font:inherit;font-size:12px;line-height:1;cursor:pointer}',
+			/* One button shape for the whole plugin: at least a 28x28 tap target, and
+			 * it GROWS to fit its label. A fixed `width:28px` here squeezed every text
+			 * label into a one-character column — the label wrapped, the row grew, and
+			 * a header that should be 32px tall turned into a ladder of letters. An
+			 * icon button still measures 28px (16px glyph + 6px padding each side)
+			 * while a text button can be as wide as the word it carries. */
+			'.dshdv-btn{display:inline-flex;flex:none;align-items:center;justify-content:center;min-width:28px;height:28px;padding:6px;border:0;border-radius:var(--dsw-radius-sm,6px);background:transparent;color:var(--dsw-alias-label-secondary,#5b636e);font:inherit;font-size:12px;line-height:1;white-space:nowrap;cursor:pointer}',
 			'.dshdv-btn:hover{color:var(--dsw-alias-label-primary,#1b1f24);background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}',
 			'.dshdv-btn[aria-pressed="true"]{color:var(--dsw-alias-label-primary,#1b1f24);background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}',
 			'.dshdv-btn:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#3b6cf6);outline-offset:1px}',
@@ -567,9 +573,11 @@ window.__ModuleLoader__.load({
 			'.dshdv-fvEditor{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;min-width:0;background:var(--dsw-alias-markdown-code-block,var(--dsw-alias-bg-layer-2,#fafafa))}',
 			'.dshdv-fvPane{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;min-width:0}',
 			'.dshdv-fvPane[hidden]{display:none}',
-			'.dshdv-fvEditorHead{display:flex;align-items:center;gap:8px;flex:none;height:32px;padding:0 12px;color:var(--dsw-alias-label-tertiary,#8b939e);font-size:11px}',
+			'.dshdv-fvEditorHead{display:flex;align-items:center;gap:6px;flex:none;min-height:32px;padding:0 12px;color:var(--dsw-alias-label-tertiary,#8b939e);font-size:11px}',
 			'.dshdv-fvPath{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--ds-font-family-code,monospace)}',
-			'.dshdv-fvStatus{flex:none}',
+			/* Nothing in the head may wrap: the path ellipsizes, the rest keeps its
+			 * own width, and the row's height follows the tallest control. */
+			'.dshdv-fvStatus{flex:none;white-space:nowrap}',
 			/* The editing surface. An uncontrolled textarea: the draft lives in the
 			 * DOM while typing, so a keystroke costs no render at all; the model only
 			 * learns that the file BECAME dirty. Metrics come from the shell's code
