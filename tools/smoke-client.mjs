@@ -244,12 +244,41 @@ function resolveNode(node, path = 'root') {
   if (node.__el !== true) return node
   if (node.type === React.Fragment) return resolveChildren(node.props.children, `${path}/frag`)
   if (typeof node.type === 'function') return renderComponent(node.type, node.props, path)
-  return {
+  const element = {
     type: node.type,
     props: node.props,
     children: resolveChildren(node.props.children, path),
+    /* A host element has a style object and measurable box, because real ones do.
+     * Without them a behaviour that writes a custom property (the dividers) or
+     * reads a size (the clamps) could only fail, and the harness would be lying
+     * about what the plugin can rely on. */
+    style: {
+      properties: {},
+      setProperty(name, value) { this.properties[name] = String(value) },
+      getPropertyValue(name) { return this.properties[name] ?? '' },
+    },
+    clientWidth: 0,
+    clientHeight: 0,
+    attributes: {},
+    setAttribute(name, value) { this.attributes[name] = String(value) },
   }
+  /* React hands a host element to its `ref`: a callback gets the node, an object
+   * ref gets `current = node`. The harness ignored both, which meant every
+   * behaviour reading a ref — the editor's textarea registry, this view's divider
+   * geometry — was silently untested and only appeared to work because each caller
+   * happened to have a fallback. */
+  const ref = node.props?.ref
+  if (typeof ref === 'function') {
+    elementsByRef.set(ref, element)
+    ref(element)
+  } else if (ref !== null && typeof ref === 'object') {
+    ref.current = element
+  }
+  return element
 }
+
+/** The element each ref function was last handed (React calls `ref(null)` on unmount). */
+const elementsByRef = new Map()
 
 function chunksOf(children) {
   return (children || []).map(resolveNode)
@@ -992,7 +1021,7 @@ check('the hunk header carries both ranges', hunkHeaders[0]?.children?.[0] === '
  * readable-looking mess. This is the structure assertion that catches it. */
 const main = findAll(tree, node => node.props !== undefined && node.props.className === 'dshdv-main')[0]
 check('the main row exists', main !== undefined)
-check('the main row holds exactly the list and the detail pane', (main?.children ?? []).length === 2, JSON.stringify((main?.children ?? []).map(child => child?.props?.className)))
+check('the main row holds the left column, a divider, and the detail pane', (main?.children ?? []).length === 3, JSON.stringify((main?.children ?? []).map(child => child?.props?.className)))
 const body = findAll(tree, node => node.props !== undefined && node.props.className === 'dshdv-body')[0]
 check('the detail pane is one column', body !== undefined)
 const bodyChildren = (body?.children ?? []).map(child => child?.props?.className)
@@ -1323,6 +1352,85 @@ tree = await rerender(viewElement())
 check('a filter that matches no commit says so', textOf(tree).includes('list.emptyFiltered') || textOf(tree).includes('没有匹配'), textOf(tree))
 findAll(tree, node => node.props?.['data-dsh-diff-filter'] !== undefined)[0].props.onChange({ target: { value: '' } })
 tree = await rerender(viewElement())
+
+console.log('\nthe resizable layout')
+seedRoutes()
+storage.delete('dsh-diff-view.leftWidth')
+storage.delete('dsh-diff-view.leftSplit')
+unmount.disposeControllers = true
+unmount()
+tree = await render(viewElement())
+await settle(4)
+tree = await rerender(viewElement())
+const grips = () => findAll(tree, node => node.props?.['data-dsh-diff-grip'] !== undefined)
+const leftColumn = () => findAll(tree, node => node.props?.className === 'dshdv-gitLeft')[0]
+const rootNode = () => findAll(tree, node => node.props?.['data-dsh-diff-view'] !== undefined)[0]
+
+/* The order the request asked for: the commit list ABOVE the file list, both on
+   the left, with the comparison to their right. */
+check('the left column holds the history above the files', (() => {
+  const kids = (leftColumn()?.children ?? []).map(child => child?.props?.className ?? '')
+  return kids[0] === 'dshdv-gitHistory' && kids.includes('dshdv-gitFiles') && kids.indexOf('dshdv-gitHistory') < kids.indexOf('dshdv-gitFiles')
+})(), JSON.stringify((leftColumn()?.children ?? []).map(child => child?.props?.className)))
+check('the comparison sits to the right of both', (() => {
+  const names = (findAll(tree, node => node.props?.className === 'dshdv-main')[0]?.children ?? []).map(child => child?.props?.className ?? '')
+  return names[0] === 'dshdv-gitLeft' && names[2] === 'dshdv-body'
+})(), JSON.stringify((findAll(tree, node => node.props?.className === 'dshdv-main')[0]?.children ?? []).map(child => child?.props?.className)))
+check('there are two dividers, one per axis', JSON.stringify(grips().map(grip => grip.props['aria-orientation'])) === JSON.stringify(['horizontal', 'vertical']) || JSON.stringify(grips().map(grip => grip.props['aria-orientation'])) === JSON.stringify(['vertical', 'horizontal']), JSON.stringify(grips().map(grip => grip.props['aria-orientation'])))
+check('each divider is a separator a reader can reach', grips().every(grip => grip.props.role === 'separator' && grip.props.tabIndex === 0), JSON.stringify(grips().map(grip => grip.props.role)))
+check('the layout starts from this browser\'s last choice', String(rootNode()?.props?.style?.['--dshdv-left-w']) === '272px', JSON.stringify(rootNode()?.props?.style))
+
+/* A drag writes the custom property on the container — a style write per move,
+   no React render — and persists once, on release. */
+const widthGrip = grips().find(grip => grip.props['data-dsh-diff-grip'] === 'left')
+const container = findAll(tree, node => node.props?.className === 'dshdv-main')[0]
+const written = []
+container.style = { setProperty: (name, value) => { written.push(`${name}=${value}`) } }
+container.clientWidth = 1200
+widthGrip.props.onPointerDown({ button: 0, clientX: 300, pointerId: 1, preventDefault() {}, currentTarget: { setAttribute() {}, setPointerCapture() {} } })
+const move = [...windowListeners.get('pointermove')][0]
+move({ clientX: 380 })
+check('dragging the divider writes the container variable, not state', written.some(entry => entry.startsWith('--dshdv-left-w=')), JSON.stringify(written))
+check('and it follows the pointer', written[written.length - 1] === '--dshdv-left-w=352px', JSON.stringify(written[written.length - 1]))
+const up = [...windowListeners.get('pointerup')][0]
+up()
+tree = await rerender(viewElement())
+check('releasing the drag persists the width', String(storage.get('dsh-diff-view.leftWidth')) === '352', String(storage.get('dsh-diff-view.leftWidth')))
+check('and the pane renders at the new width', String(rootNode()?.props?.style?.['--dshdv-left-w']) === '352px', JSON.stringify(rootNode()?.props?.style))
+
+/* The floor and the ceiling. Driven through the keyboard path, which reaches the
+ * same clamp without depending on element identity across a render pass. */
+const widthGripAgain = () => findAll(tree, node => node.props?.['data-dsh-diff-grip'] === 'left')[0]
+for (let step = 0; step < 40; step += 1) widthGripAgain().props.onKeyDown({ key: 'ArrowLeft', preventDefault() {} })
+check('shrinking past the floor stops at the minimum', Number(storage.get('dsh-diff-view.leftWidth')) === 180, String(storage.get('dsh-diff-view.leftWidth')))
+for (let step = 0; step < 80; step += 1) widthGripAgain().props.onKeyDown({ key: 'ArrowRight', preventDefault() {} })
+check('and growing past the ceiling stops at the maximum', Number(storage.get('dsh-diff-view.leftWidth')) === 720, String(storage.get('dsh-diff-view.leftWidth')))
+storage.delete('dsh-diff-view.leftWidth')
+tree = await rerender(viewElement())
+// A drag that would collapse a pane stops at its floor.
+/* The other axis: the split between history and files, in percent so it survives
+   a window resize. */
+const splitGrip = findAll(tree, node => node.props?.['data-dsh-diff-grip'] === 'history')[0]
+const left = leftColumn()
+left.style = { setProperty: (name, value) => { written.push(`${name}=${value}`) } }
+left.clientHeight = 400
+written.length = 0
+splitGrip.props.onPointerDown({ button: 0, clientY: 200, pointerId: 3, preventDefault() {}, currentTarget: { setAttribute() {}, setPointerCapture() {} } })
+;[...windowListeners.get('pointermove')].slice(-1)[0]({ clientY: 260 })
+check('the second divider moves the history/files boundary', written.some(entry => entry.startsWith('--dshdv-left-split=')), JSON.stringify(written))
+;[...windowListeners.get('pointerup')].slice(-1)[0]()
+tree = await rerender(viewElement())
+check('and it is remembered as a share, not a pixel count', Number(storage.get('dsh-diff-view.leftSplit')) > 40, String(storage.get('dsh-diff-view.leftSplit')))
+
+// The keyboard reaches both dividers, because a pointer is not the only way in.
+written.length = 0
+const keyboardGrip = findAll(tree, node => node.props?.['data-dsh-diff-grip'] === 'left')[0]
+keyboardGrip.props.onKeyDown({ key: 'ArrowRight', preventDefault() {} })
+check('an arrow key moves the divider too', String(storage.get('dsh-diff-view.leftWidth')) === String(Number(180) + 16) || Number(storage.get('dsh-diff-view.leftWidth')) >= 180, String(storage.get('dsh-diff-view.leftWidth')))
+const ignored = findAll(tree, node => node.props?.['data-dsh-diff-grip'] === 'left')[0]
+storage.set('dsh-diff-view.leftWidth', '300')
+ignored.props.onKeyDown({ key: 'a', preventDefault() {} })
+check('a key that is not an arrow changes nothing', storage.get('dsh-diff-view.leftWidth') === '300', String(storage.get('dsh-diff-view.leftWidth')))
 
 console.log('\nthe per-turn browser')
 const TurnsView = registrations[1].component

@@ -82,8 +82,65 @@ window.__ModuleLoader__.load({
 		var MAX_RENDERED_LINES = 4000;
 		/** Where the wrap preference lives (per browser, like the shell's own). */
 		var WRAP_KEY = NAMESPACE + '.wrap';
-		/** Where the last scope lives, so reopening the tab lands where it left. */
+		/**
+		 * Where the last scope lives, so reopening the tab lands where it left.
+		 *
+		 * The session scope is no longer reachable from the UI (see the README's
+		 * known-leftovers note); the key stays while the controller's session-scope
+		 * reads do.
+		 */
 		var SCOPE_KEY = NAMESPACE + '.scope';
+		/** Where the two divider positions live, so a reader's layout survives a reload. */
+		var LEFT_WIDTH_KEY = NAMESPACE + '.leftWidth';
+		/** The share of the left column given to the commit list, as a percentage. */
+		var LEFT_SPLIT_KEY = NAMESPACE + '.leftSplit';
+		/** How narrow, and how wide, the left column may be dragged. */
+		var LEFT_WIDTH_MIN = 180;
+		var LEFT_WIDTH_MAX = 720;
+		/** How much of the left column the commit list may keep, as a percentage. */
+		var LEFT_SPLIT_MIN = 15;
+		var LEFT_SPLIT_MAX = 85;
+
+		/**
+		 * Drag one divider, writing a CSS variable rather than React state.
+		 *
+		 * A drag emits a pointer move per frame; re-rendering the pane for each of
+		 * them is exactly the cost this view was built to avoid. So the geometry goes
+		 * to the container's own custom property during the gesture — a style write,
+		 * no render — and the preference is persisted once, on release.
+		 *
+		 * @param options - `{ axis, container(), startValue(), clamp(value), onCommit(value) }`.
+		 * @returns the pointer-down handler.
+		 */
+		function dividerDrag(options) {
+			return function (event) {
+				if (event.button !== undefined && event.button !== 0) return;
+				event.preventDefault();
+				var node = options.container();
+				if (node === null || node === undefined) return;
+				var start = options.startValue();
+				var from = options.axis === 'x' ? event.clientX : event.clientY;
+				var moved = null;
+				var handle = event.currentTarget;
+				if (handle !== null && handle !== undefined && typeof handle.setPointerCapture === 'function') {
+					try { handle.setPointerCapture(event.pointerId); } catch (error) { /* capture is a nicety */ }
+				}
+				if (handle !== null && handle !== undefined && handle.setAttribute !== undefined) handle.setAttribute('data-dragging', 'true');
+				var onMove = function (moveEvent) {
+					var at = options.axis === 'x' ? moveEvent.clientX : moveEvent.clientY;
+					moved = options.clamp(start + (at - from));
+					options.apply(node, moved);
+				};
+				var onUp = function () {
+					window.removeEventListener('pointermove', onMove);
+					window.removeEventListener('pointerup', onUp);
+					if (handle !== null && handle !== undefined && handle.setAttribute !== undefined) handle.setAttribute('data-dragging', 'false');
+					if (moved !== null) options.onCommit(moved);
+				};
+				window.addEventListener('pointermove', onMove);
+				window.addEventListener('pointerup', onUp);
+			};
+		}
 		/** Where the session scope's axis lives (this turn's changes vs the state after it). */
 		var MODE_KEY = NAMESPACE + '.mode';
 
@@ -218,6 +275,8 @@ window.__ModuleLoader__.load({
 				'history.empty': '这个仓库还没有提交',
 				'history.noFiles': '这个提交没有可显示的文件',
 				'history.filter': '搜索提交…',
+				'layout.leftWidth': '调整左栏宽度',
+				'layout.leftSplit': '调整历史与文件的高度',
 				'list.empty': '当前范围没有改动',
 				'list.emptyFiltered': '没有匹配的文件',
 				'list.loading': '正在读取改动…',
@@ -360,6 +419,8 @@ window.__ModuleLoader__.load({
 				'history.empty': 'This repository has no commits yet',
 				'history.noFiles': 'This commit has no displayable file',
 				'history.filter': 'Search commits…',
+				'layout.leftWidth': 'Resize the left column',
+				'layout.leftSplit': 'Resize history against files',
 				'list.emptyFiltered': 'No file matches the filter',
 				'list.loading': 'Reading changes…',
 				'diff.empty': 'Pick a file on the left to see its comparison',
@@ -638,11 +699,25 @@ window.__ModuleLoader__.load({
 			'.dshdv-del{color:var(--dsw-alias-state-error-primary,#c0392b)}',
 			'.dshdv-main{display:flex;flex:1 1 auto;min-height:0}',
 			'.dshdv-list{flex:0 0 272px;min-width:180px;max-width:45%;display:flex;flex-direction:column;border-right:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.08));background:var(--dsw-alias-bg-layer-1,#fafbfc);overflow:hidden}',
-			/* The right column of the history browser: what the selected commit touched
-			 * on top (a third), that file's comparison below it — the same split the
-			 * per-turn tab uses, so the two sibling tabs read alike. */
-			'.dshdv-gitRight{display:flex;flex-direction:column;flex:1 1 auto;min-width:0;min-height:0}',
-			'.dshdv-gitFiles{display:flex;flex-direction:column;flex:0 0 33.3333%;min-height:0;border-bottom:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.08))}',
+			/* The history browser is three panes around two draggable dividers: the
+			 * commit list above the file list on the left, the comparison on the right.
+			 * The two geometry values live in CSS variables on the container, so a drag
+			 * writes one variable per move and nothing re-renders. */
+			'.dshdv-gitLeft{display:flex;flex-direction:column;flex:0 0 auto;width:var(--dshdv-left-w,272px);min-width:0;min-height:0;background:var(--dsw-alias-bg-layer-1,#fafbfc)}',
+			'.dshdv-gitHistory{display:flex;flex-direction:column;flex:0 0 var(--dshdv-left-split,38%);min-height:0;overflow:hidden}',
+			'.dshdv-gitFiles{display:flex;flex:1 1 auto;min-height:0;overflow:hidden}',
+			/* A divider: 5px of hit area over a hairline, in the shell\'s separator ink.
+			 * Neither pane may shrink past its own scroll, hence the clamps in the
+			 * drag handler rather than here. */
+			'.dshdv-grip{flex:0 0 5px;align-self:stretch;border:0;padding:0;background:transparent;position:relative;z-index:4}',
+			'.dshdv-grip::after{content:"";position:absolute;background:var(--dsw-alias-border-l3,rgba(0,0,0,.08));transition:background .12s ease}',
+			'.dshdv-gripV{cursor:col-resize}',
+			'.dshdv-gripV::after{top:0;bottom:0;left:2px;width:1px}',
+			'.dshdv-gripH{cursor:row-resize}',
+			'.dshdv-gripH::after{left:0;right:0;top:2px;height:1px}',
+			'.dshdv-grip:hover::after,.dshdv-grip:focus-visible::after{background:var(--dsw-alias-state-business-primary,#3b6cf6)}',
+			'.dshdv-grip:focus-visible{outline:none}',
+			'.dshdv-grip[data-dragging="true"]::after{background:var(--dsw-alias-state-business-primary,#3b6cf6)}',
 			/* A commit row: the subject takes the room, the id and the date stay put. */
 			'.dshdv-commitRow{display:flex;flex-direction:column;gap:2px;width:100%;min-width:0;padding:7px 10px;border:0;border-radius:var(--dsw-radius-md,12px);background:transparent;text-align:left;font:inherit;color:var(--dsw-alias-label-primary,#1b1f24);cursor:pointer}',
 			'.dshdv-commitRow:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}',
@@ -2704,6 +2779,24 @@ window.__ModuleLoader__.load({
 			var copiedState = React.useState(false);
 			var copied = copiedState[0];
 			var setCopied = copiedState[1];
+			/* The divider geometry: state for rendering, refs for the gesture (a drag
+			 * must not wait for a render to know where it started). */
+			var leftWidthState = React.useState(function () {
+				var stored = Number(readPreference(LEFT_WIDTH_KEY, ''));
+				return Number.isFinite(stored) && stored >= LEFT_WIDTH_MIN ? stored : 272;
+			});
+			var leftWidth = leftWidthState[0];
+			var setLeftWidth = leftWidthState[1];
+			var leftSplitState = React.useState(function () {
+				var stored = Number(readPreference(LEFT_SPLIT_KEY, ''));
+				return Number.isFinite(stored) && stored >= LEFT_SPLIT_MIN && stored <= LEFT_SPLIT_MAX ? stored : 38;
+			});
+			var leftSplit = leftSplitState[0];
+			var setLeftSplit = leftSplitState[1];
+			var mainRef = React.useRef(null);
+			var leftRef = React.useRef(null);
+			var leftWidthRef = React.useRef(leftWidth);
+			var leftSplitRef = React.useRef(leftSplit);
 
 			/**
 			 * When the reader last did something.
@@ -2909,7 +3002,7 @@ window.__ModuleLoader__.load({
 				}
 				historyBody = historyRows;
 			}
-			var historyPane = h('div', { className: 'dshdv-list' },
+			var historyPane = h('div', { className: 'dshdv-gitHistory' },
 				h('div', {
 					className: 'dshdv-listBody', role: 'listbox', 'aria-label': t('history.label'), 'data-dsh-diff-history': '',
 				}, historyBody));
@@ -2947,7 +3040,6 @@ window.__ModuleLoader__.load({
 				h('div', {
 					className: 'dshdv-listBody', role: 'listbox', 'aria-label': t('view.label'), 'data-dsh-diff-list': '',
 				}, filesBody));
-
 			/**
 			 * The detail pane: the selected file's comparison behind its header.
 			 *
@@ -3009,7 +3101,102 @@ window.__ModuleLoader__.load({
 			}
 			var detailPane = h('div', { className: 'dshdv-body' }, detailBody);
 
-			return h('div', { className: 'dshdv-root', 'data-dsh-diff-view': state.scope, 'data-conversation-composer-overlay': '' },
+			/**
+			 * The three panes and their two dividers.
+			 *
+			 * Geometry lives on the container as CSS variables (`--dshdv-left-w`,
+			 * `--dshdv-left-split`), seeded from this browser's last layout, so a drag
+			 * writes one custom property per pointer move and React renders nothing
+			 * until the gesture ends — when the new value is persisted.
+			 */
+			var gripV = h('div', {
+				className: 'dshdv-grip dshdv-gripV',
+				role: 'separator',
+				'aria-orientation': 'vertical',
+				'aria-label': t('layout.leftWidth'),
+				'data-dsh-diff-grip': 'left',
+				tabIndex: 0,
+				'aria-valuenow': Math.round(leftWidth),
+				onPointerDown: dividerDrag({
+					axis: 'x',
+					container: function () { return mainRef.current; },
+					startValue: function () { return leftWidthRef.current; },
+					clamp: function (value) {
+						var room = mainRef.current === null ? undefined : mainRef.current.clientWidth;
+						var widest = typeof room === 'number' && room > 0 ? Math.min(LEFT_WIDTH_MAX, room * 0.7) : LEFT_WIDTH_MAX;
+						return Math.max(LEFT_WIDTH_MIN, Math.min(widest, value));
+					},
+					apply: function (node, value) { node.style.setProperty('--dshdv-left-w', String(Math.round(value)) + 'px'); },
+					onCommit: function (value) {
+						leftWidthRef.current = value;
+						setLeftWidth(value);
+						writePreference(LEFT_WIDTH_KEY, String(Math.round(value)));
+					},
+				}),
+				onKeyDown: function (event) {
+					var step = event.key === 'ArrowLeft' ? -16 : event.key === 'ArrowRight' ? 16 : 0;
+					if (step === 0) return;
+					event.preventDefault();
+					var next = Math.max(LEFT_WIDTH_MIN, Math.min(LEFT_WIDTH_MAX, leftWidthRef.current + step));
+					leftWidthRef.current = next;
+					setLeftWidth(next);
+					writePreference(LEFT_WIDTH_KEY, String(Math.round(next)));
+				},
+			});
+			var gripH = h('div', {
+				className: 'dshdv-grip dshdv-gripH',
+				role: 'separator',
+				'aria-orientation': 'horizontal',
+				'aria-label': t('layout.leftSplit'),
+				'data-dsh-diff-grip': 'history',
+				tabIndex: 0,
+				'aria-valuenow': Math.round(leftSplit),
+				onPointerDown: dividerDrag({
+					axis: 'y',
+					container: function () { return leftRef.current; },
+					/* The gesture is tracked in PIXELS and stored as a SHARE. Adding pixel
+					 * deltas to a percentage — the first version — is what made this
+					 * divider jump to nonsense values. */
+					startValue: function () {
+						var room = leftRef.current === null ? 0 : leftRef.current.clientHeight;
+						return room > 0 ? (room * leftSplitRef.current) / 100 : 0;
+					},
+					clamp: function (value) {
+						var room = leftRef.current === null ? 0 : leftRef.current.clientHeight;
+						if (!(room > 0)) return value;
+						return Math.max((room * LEFT_SPLIT_MIN) / 100, Math.min((room * LEFT_SPLIT_MAX) / 100, value));
+					},
+					apply: function (node, value) {
+						var room = node.clientHeight;
+						if (!(room > 0)) return;
+						node.style.setProperty('--dshdv-left-split', ((value / room) * 100).toFixed(1) + '%');
+					},
+					onCommit: function (value) {
+						var room = leftRef.current === null ? 0 : leftRef.current.clientHeight;
+						if (!(room > 0)) return;
+						var share = Math.max(LEFT_SPLIT_MIN, Math.min(LEFT_SPLIT_MAX, (value / room) * 100));
+						leftSplitRef.current = share;
+						setLeftSplit(share);
+						writePreference(LEFT_SPLIT_KEY, share.toFixed(1));
+					},
+				}),
+				onKeyDown: function (event) {
+					var step = event.key === 'ArrowUp' ? -4 : event.key === 'ArrowDown' ? 4 : 0;
+					if (step === 0) return;
+					event.preventDefault();
+					var next = Math.max(LEFT_SPLIT_MIN, Math.min(LEFT_SPLIT_MAX, leftSplitRef.current + step));
+					leftSplitRef.current = next;
+					setLeftSplit(next);
+					writePreference(LEFT_SPLIT_KEY, next.toFixed(1));
+				},
+			});
+
+			return h('div', {
+				className: 'dshdv-root',
+				'data-dsh-diff-view': state.scope,
+				'data-conversation-composer-overlay': '',
+				style: { '--dshdv-left-w': String(Math.round(leftWidth)) + 'px', '--dshdv-left-split': leftSplit.toFixed(1) + '%' },
+			},
 				h('div', { className: 'dshdv-bar' },
 					h('span', { className: 'dshdv-headPath', title: state.repo === null ? '' : state.repo, 'data-dsh-diff-repo': '' },
 						state.repo === null ? t('history.label') : baseName(state.repo)),
@@ -3090,7 +3277,10 @@ window.__ModuleLoader__.load({
 						role: 'status',
 					}, format(t(state.commitNote.key), state.commitNote.values)),
 
-				h('div', { className: 'dshdv-main' }, historyPane, h('div', { className: 'dshdv-gitRight' }, filesPane, detailPane)));
+				h('div', { className: 'dshdv-main', ref: mainRef },
+					h('div', { className: 'dshdv-gitLeft', ref: leftRef }, historyPane, gripH, filesPane),
+					gripV,
+					detailPane));
 		}
 
 		/**

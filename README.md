@@ -253,6 +253,21 @@ check('the ghosted textarea keeps a visible caret', ...)   // 字形透明但光
 | 行度量 | `padding:5px 10px`、`gap:6px`、`border-radius:var(--dsw-radius-md)`、每级缩进 18px、`scrollbar-gutter:stable`、悬停用 `--dsw-alias-interactive-bg-hover`（全部逐字对齐 FilesBody.module.css） |
 
 保留的自家能力：脏标记（`●` 在行尾与标签上）、每级的 loading/失败/空/截断提示行、多标签与编辑器。
+## 三栏 + 两条可拖动的分隔条
+
+```
+┌──────────────────┬──────────────────────────┐
+│ 提交历史（上）     │                          │
+├──────────────────┤   详情（该文件的对比）      │
+│ 文件列表（下）     │                          │
+└──────────────────┴──────────────────────────┘
+        ↕ 拖动                        ↕ 拖动
+```
+
+- 两条分隔条都是 `role="separator"`，**指针拖动 + 方向键都能调**（←/→ 调左栏宽度，↑/↓ 调上下比例），各 16px / 4% 一步。
+- 几何值放在容器的 CSS 变量上（`--dshdv-left-w`、`--dshdv-left-split`）：拖动时**每次 pointermove 只写一个变量，不触发 React 渲染**，松手时才落一次状态并持久化（`dsh-diff-view.leftWidth` / `.leftSplit`）。
+- 上下的比例**按百分比存**，所以改窗口大小不会把布局弄坏；宽度按像素存，并有上下限（180–720px，且不超过容器的 70%）。
+- 单位混用是这一版的真实 bug：第一版把"像素位移"加到"百分比"上，分隔条会跳到荒谬的值 —— 现在手势内部一律用像素，只在存储时换算成比例。
 ## 自动刷新：默认关闭（一次设计缺陷的修正）
 
 第一版是这样写的：**活跃时每 4 秒**读一次，20 秒退到慢速，而"活跃"= 距上次交互**或上次读到新数据** 30 秒内。最后半句是致命的 —— 我写了一个 `[state.phase, state.files.length]` 的 effect，于是**每次刷新读到新数据又把自己标记为活跃**，退化成慢速这件事永远不会发生：4 秒轮询自我续命，永久跑下去。逐轮页签同样（8 秒无条件，外加同样的自我续命）。
@@ -389,7 +404,7 @@ dsh plugin add link:F:/deepseek_harness_workspace/dsh-diff-view
 
 ```bash
 node tools/test-host.mjs      # 170 项：解析器对真实 git 输出、路由行为、会话折叠与兜底、围栏
-node tools/smoke-client.mjs   # 275 项：契约、注册、渲染、交互、失败态
+node tools/smoke-client.mjs   # 290 项：契约、注册、渲染、交互、失败态
 npm test                      # 两个都跑
 ```
 

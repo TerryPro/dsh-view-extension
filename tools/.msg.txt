@@ -1,18 +1,23 @@
-dsh-diff-view: polling is off by default, and a read is not an interaction
+dsh-diff-view: three panes, two draggable dividers
 
-The first version polled every FOUR seconds while "active", and re-armed that
-active window from every fresh answer ([state.phase, state.files.length]). So the
-intended back-off to the slow cadence could never happen: the pane renewed its own
-fast window from the refreshes it was scheduling, and polled forever. The per-turn
-tab had the same shape (8s unconditional, plus the same self re-arming).
+Layout per the request: the commit list above the file list on the left, the
+comparison on the right, with a divider between the two axes.
 
-- polling is opt-in now (persisted as dsh-diff-view.auto), default off
-- active cadence 4s -> 15s, idle 20s -> 60s
-- only real interaction counts as activity
-- what replaces the timer: a re-read on window focus / visibilitychange, which is
-  the event that actually means "the picture may have moved since you looked"
+- both dividers are role="separator": pointer drag AND arrow keys (16px / 4% a
+  step), with a floor and a ceiling on each
+- geometry lives in custom properties on the container, so a drag writes ONE
+  variable per pointermove and renders nothing until release, when the choice is
+  persisted (dsh-diff-view.leftWidth / .leftSplit)
+- the vertical share is stored as a percentage so a window resize cannot break the
+  layout; the width is stored in pixels
+- real bug this found: the first version added a pixel delta to a percentage, so
+  the history/files divider jumped to nonsense values. The gesture is now pixels
+  throughout and converts once, on commit.
 
-Tests now assert the pair: nothing is scheduled while polling is off, the toggle
-persists, and only then is the next read scheduled.
+The harness learned two things it was silently lying about: it never invoked refs
+(callback OR object), and its host elements had no style object or box. Every
+behaviour reading a ref — the editor's textarea registry, this view's divider
+geometry — was therefore untested and only appeared to work because each caller
+had a fallback.
 
-275 client checks, 170 host checks.
+290 client checks, 170 host checks.
