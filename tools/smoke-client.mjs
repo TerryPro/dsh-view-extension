@@ -465,6 +465,29 @@ const primitivesStub = {
   Tag: function Tag(props) {
     return React.createElement('span', { 'data-tone': props.tone ?? 'outline' }, props.children)
   },
+  /* The tree vocabulary, shaped like the shell's own: a type-coloured file sheet,
+   * the open/closed folder pair (the icon IS the expansion state), and a path
+   * label that splits directories from the trailing name. */
+  FileTypeIcon: React.memo(function FileTypeIcon(props) {
+    return React.createElement('span', { 'data-file-icon': props.kind ?? props.path ?? '', 'data-size': String(props.size ?? 28) })
+  }),
+  classifyFileType(name) {
+    if (/\.(md|markdown)$/iu.test(name)) return 'markdown'
+    if (/\.(js|mjs|cjs|ts|tsx|json|yml|yaml)$/iu.test(name)) return 'code'
+    return 'other'
+  },
+  IconFolderOpenRegular: function IconFolderOpenRegular() {
+    return React.createElement('span', { 'data-folder': 'open' })
+  },
+  IconFolderCloseRegular: function IconFolderCloseRegular() {
+    return React.createElement('span', { 'data-folder': 'closed' })
+  },
+  PathLabel: function PathLabel(props) {
+    const at = props.path.lastIndexOf('/')
+    return React.createElement('span', { 'data-path-label': '', title: props.path, className: props.className },
+      at === -1 ? null : React.createElement('span', { 'data-path-directory': '' }, props.path.slice(0, at + 1)),
+      React.createElement('span', { 'data-path-name': '' }, at === -1 ? props.path : props.path.slice(at + 1)))
+  },
   relativeTime(at, now) {
     const MIN = 60_000
     const HOUR = 3_600_000
@@ -1604,9 +1627,16 @@ const closeButtons = () => findAll(fileTree, node => node.props?.className === '
 const dirtyDots = () => findAll(fileTree, node => node.props?.className === 'dshdv-fvDot').length
 
 check('the file view reads the working directory root', requests.some(entry => entry.url === ROOT_TREE), JSON.stringify(requests.map(entry => entry.url)))
+check('the tree header shows the root as the shell shows a path', findAll(fileTree, node => node.props?.['data-path-label'] !== undefined).length === 1 && textOf(findAll(fileTree, node => node.props?.['data-path-label'] !== undefined)[0]).includes('ws'), textOf(fileTree))
+check('the tree header offers a reload', findAll(fileTree, node => node.props?.['data-dsh-diff-files-refresh'] !== undefined).length === 1)
 check('the root level renders its entries', treeRows().length === 3, JSON.stringify(treeRows().map(node => node.props['data-path'])))
 check('the tree lists directories first', treeRows()[0].props['data-path'] === 'src', JSON.stringify(treeRows().map(node => node.props['data-path'])))
 check('a directory starts collapsed', treeRows()[0].props['aria-expanded'] === false, String(treeRows()[0].props['aria-expanded']))
+/* The shell's own language: the folder glyph carries the expansion state, so a
+ * twist triangle would be a second, foreign affordance. */
+check('a directory is drawn with the closed folder glyph', findAll(fileTree, node => node.props?.['data-folder'] === 'closed').length >= 1, JSON.stringify(findAll(fileTree, node => node.props?.['data-folder'] !== undefined).map(node => node.props['data-folder'])))
+check('no twist triangle is used', findAll(fileTree, node => node.props?.className === 'dshdv-fvTwist').length === 0)
+check('files are drawn with the shell\'s type icons', findAll(fileTree, node => node.props?.['data-file-icon'] !== undefined).length >= 1, JSON.stringify(findAll(fileTree, node => node.props?.['data-file-icon'] !== undefined).map(node => node.props['data-file-icon'])))
 check('no editor is offered before a file is opened', textOf(fileTree).includes('从左侧选择一个文件打开'), textOf(fileTree))
 
 // Expanding a directory reads only that level.

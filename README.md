@@ -158,6 +158,18 @@
 
 本插件的两个页签都取了这个契约：根节点带 `data-conversation-composer-overlay`，并声明 `--dshdv-bottom-clearance: calc(var(--dsh-composer-height, 152px) + 16px)`，每个内部滚动区用它做 `padding-bottom`（与 `ui-trajectory` 的做法一致）。**缺任何一半都会坏**：只有属性没让位 → 最后一行被浮起的输入框压住；只有让位没属性 → 在并不存在浮动输入框的地方空出一块。测试把两半都钉住了。
 
+### 左栏照 `dsh-vscode` / 外壳文件面板的样子
+
+行/表头/图标都不是我自绘的，而是外壳 `ui-sidebar-files` FilesBody 的那一套：
+
+| 部位 | 用的东西 |
+|---|---|
+| 表头 | 38px 行、`padding:0 6px 0 16px`、下方 0.5px `--dsw-alias-border-l3`；路径用外壳自己的 **`PathLabel`**（目录弱化、末段文件名正常，窄栏时保留文件名），右侧一个 28px 刷新按钮 |
+| 目录行 | 外壳的 **`IconFolderOpenRegular` / `IconFolderCloseRegular`** —— **开了/关了由图标本身表达，没有三角箭头**（截图里那个面板也是这么做的） |
+| 文件行 | 外壳的 **`FileTypeIcon`**（`kind=classifyFileType(name)`、16px）—— 按类型着色的那张纸片，code/markdown/pdf/图片各自的颜色 |
+| 行度量 | `padding:5px 10px`、`gap:6px`、`border-radius:var(--dsw-radius-md)`、每级缩进 18px、`scrollbar-gutter:stable`、悬停用 `--dsw-alias-interactive-bg-hover`（全部逐字对齐 FilesBody.module.css） |
+
+保留的自家能力：脏标记（`●` 在行尾与标签上）、每级的 loading/失败/空/截断提示行、多标签与编辑器。
 ## 第三个页签：文件（树 + 多标签编辑器）
 
 参考两个已装插件：`dsh-vscode`（文件面板）与 `dsh-better-sidebar`（标签工作台 + CodeMirror 编辑器）。调研结论直接决定了实现方式：
@@ -262,7 +274,7 @@ dsh plugin add link:F:/deepseek_harness_workspace/dsh-diff-view
 
 ```bash
 node tools/test-host.mjs      # 150 项：解析器对真实 git 输出、路由行为、会话折叠与兜底、围栏
-node tools/smoke-client.mjs   # 267 项：契约、注册、渲染、交互、失败态
+node tools/smoke-client.mjs   # 272 项：契约、注册、渲染、交互、失败态
 npm test                      # 两个都跑
 ```
 

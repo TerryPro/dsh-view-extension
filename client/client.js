@@ -513,18 +513,22 @@ window.__ModuleLoader__.load({
 			 * interactive fill for hover/selection, `scrollbar-gutter: stable` so the
 			 * tree does not shift when a level grows a scrollbar. */
 			'.dshdv-fvTree{display:flex;flex-direction:column;flex:0 0 236px;min-width:0;min-height:0;border-right:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.08))}',
-			'.dshdv-fvTreeBody{flex:1 1 auto;min-height:0;overflow-y:auto;padding:6px 0 6px 8px;margin-right:2px;scrollbar-gutter:stable}',
-			'.dshdv-fvRow{display:flex;align-items:center;gap:6px;width:100%;border:0;background:transparent;text-align:left;font:inherit;font-size:12px;line-height:18px;color:var(--dsw-alias-label-primary,#1b1f24);padding:5px 10px;border-radius:var(--dsw-radius-md,12px);cursor:pointer}',
+			/* The tree header and rows are the shell's files-panel geometry, number
+			 * for number (`ui-sidebar-files` FilesBody.module.css): a 38px header row
+			 * with a hairline underneath, 18px of indent per level, rows that abut so
+			 * the hover fill is the whole row, and `scrollbar-gutter: stable` so the
+			 * tree keeps its inset whether or not a level overflows. */
+			'.dshdv-fvHeader{display:flex;align-items:center;gap:4px;flex:0 0 auto;box-sizing:border-box;height:38px;padding:0 6px 0 16px;border-bottom:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.08))}',
+			'.dshdv-fvHeaderPath{flex:1 1 auto;min-width:0;margin-right:12px;font-size:var(--dsh-content-font-size-secondary,13px)}',
+			'.dshdv-fvTreeBody{flex:1 1 auto;min-height:0;overflow-y:auto;margin-right:2px;padding:8px 0 8px 8px;scrollbar-gutter:stable}',
+			'.dshdv-fvRow{display:flex;align-items:center;gap:6px;width:100%;min-width:0;border:0;background:transparent;text-align:left;font:inherit;font-size:var(--dsh-content-font-size-secondary,13px);color:var(--dsw-alias-label-primary,#1b1f24);padding:5px 10px;border-radius:var(--dsw-radius-md,12px);cursor:pointer}',
 			'.dshdv-fvRow:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}',
 			'.dshdv-fvRow[aria-selected="true"]{background:var(--dsw-alias-interactive-bg-active,var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.08)))}',
 			'.dshdv-fvRow:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#3b6cf6);outline-offset:1px}',
 			'.dshdv-fvRow[aria-disabled="true"]{cursor:default;color:var(--dsw-alias-label-tertiary,#8b939e)}',
-			'.dshdv-fvTwist{flex:none;width:12px;color:var(--dsw-alias-label-tertiary,#8b939e);font-size:10px}',
-			'.dshdv-fvGlyph{flex:none;display:inline-flex;color:var(--dsh-file-type-icon-color,var(--dsh-file-type-default-color,var(--dsw-alias-label-tertiary,#8b939e)))}',
-			'.dshdv-fvGlyphDir{--dsh-file-type-default-color:var(--dsw-alias-label-tertiary,#8b939e)}',
-			'.dshdv-fvGlyphCode{--dsh-file-type-default-color:var(--dsw-static-deepseek-500,#4d6bfe)}',
-			'.dshdv-fvGlyphMarkdown{--dsh-file-type-default-color:var(--dsw-static-deepseek-500,#4d6bfe)}',
-			'.dshdv-fvGlyphImage{--dsh-file-type-default-color:rgb(139 118 246)}',
+			/* A folder glyph rides the tertiary ink and a file sheet keeps its own
+			 * category colour — the same split the shell's panel makes. */
+			'.dshdv-fvGlyph{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;color:var(--dsw-alias-label-tertiary,#8b939e)}',
 			'.dshdv-fvName{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
 			'.dshdv-fvBadge{flex:none;color:var(--dsw-alias-state-warn-primary,#c08a20);font-size:11px}',
 			'.dshdv-fvNote{margin:4px 10px;color:var(--dsw-alias-label-tertiary,#8b939e);font-size:11px;line-height:1.5}',
@@ -559,8 +563,6 @@ window.__ModuleLoader__.load({
 			'.dshdv-fvHighlight{flex:1 1 auto;min-height:0;overflow:auto;padding:8px 0 20px}',
 			'.dshdv-fvHighlight .dshdv-code{border-radius:0;margin:0}',
 			'.dshdv-fvConflict{display:flex;align-items:center;gap:8px;flex:none;padding:6px 12px;background:var(--dsw-alias-bg-layer-2,rgba(0,0,0,.04));color:var(--dsw-alias-state-warn-primary,#c08a20);font-size:12px}',
-			'.dshdv-fvBar{display:flex;align-items:center;gap:8px;flex:none;height:32px;padding:0 12px;border-bottom:0.5px solid var(--dsw-alias-border-l3,rgba(0,0,0,.08));color:var(--dsw-alias-label-tertiary,#8b939e);font-size:11px}',
-			'.dshdv-fvBarPath{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--ds-font-family-code,monospace)}',
 			'.dshdv-add{color:var(--dsw-alias-state-success-primary,#1a7f37)}',
 			'.dshdv-del{color:var(--dsw-alias-state-error-primary,#c0392b)}',
 			'.dshdv-main{display:flex;flex:1 1 auto;min-height:0}',
@@ -2872,6 +2874,21 @@ window.__ModuleLoader__.load({
 		var Tag = isRenderable(PRIMITIVES.Tag) ? PRIMITIVES.Tag : null;
 		/** The shell's read-only code card: the file view's highlighted mode. */
 		var CodeBlock = isRenderable(PRIMITIVES.CodeBlock) ? PRIMITIVES.CodeBlock : null;
+		/**
+		 * The shell's own tree vocabulary.
+		 *
+		 * A file tree that draws its own folder shapes and category colours is a
+		 * tree that drifts from the files panel beside it. These four are what
+		 * `ui-sidebar-files` itself renders: a type-coloured sheet per file, an
+		 * open/closed folder glyph (the icon IS the expansion state — no twist
+		 * triangle in the shell's panel), and a path label that keeps the trailing
+		 * name visible in a narrow column.
+		 */
+		var FileTypeIcon = isRenderable(PRIMITIVES.FileTypeIcon) ? PRIMITIVES.FileTypeIcon : null;
+		var classifyFileType = typeof PRIMITIVES.classifyFileType === 'function' ? PRIMITIVES.classifyFileType : null;
+		var IconFolderOpen = isRenderable(PRIMITIVES.IconFolderOpenRegular) ? PRIMITIVES.IconFolderOpenRegular : null;
+		var IconFolderClosed = isRenderable(PRIMITIVES.IconFolderCloseRegular) ? PRIMITIVES.IconFolderCloseRegular : null;
+		var PathLabel = isRenderable(PRIMITIVES.PathLabel) ? PRIMITIVES.PathLabel : null;
 		var ShellrelativeTime = typeof PRIMITIVES.relativeTime === 'function' ? PRIMITIVES.relativeTime : null;
 
 		/**
@@ -3316,8 +3333,14 @@ window.__ModuleLoader__.load({
 								void props.onOpen(path);
 							},
 						},
-							h('span', { className: 'dshdv-fvTwist', 'aria-hidden': 'true' }, isDirectory ? (open ? '▾' : '▸') : ''),
-							h('span', { className: 'dshdv-fvGlyph dshdv-fvGlyph' + (isDirectory ? 'Dir' : glyphFor(entry.name).charAt(0).toUpperCase() + glyphFor(entry.name).slice(1)) }, fileGlyph(glyphFor(entry.name), isDirectory, open)),
+							h('span', { className: 'dshdv-fvGlyph' + (isDirectory ? ' dshdv-fvGlyphDir' : '') },
+								isDirectory
+									? (open
+										? (IconFolderOpen !== null ? h(IconFolderOpen, null) : fileGlyph('plain', true, true))
+										: (IconFolderClosed !== null ? h(IconFolderClosed, null) : fileGlyph('plain', true, false)))
+									: (FileTypeIcon !== null && classifyFileType !== null
+										? h(FileTypeIcon, { kind: classifyFileType(entry.name), size: 16 })
+										: fileGlyph(glyphFor(entry.name), false, false))),
 							h('span', { className: 'dshdv-fvName' }, entry.name),
 							props.dirty.indexOf(path) === -1 ? null : h('span', { className: 'dshdv-fvBadge' }, '●')),
 					];
@@ -3425,18 +3448,7 @@ window.__ModuleLoader__.load({
 							},
 						}, '×'));
 				})),
-				h('span', { className: 'dshdv-fvHeadTools' },
-					h('button', {
-						type: 'button',
-						className: 'dshdv-btn',
-						title: t('files.refresh'),
-						'aria-label': t('files.refresh'),
-						'data-dsh-diff-files-refresh': '',
-						onClick: function () {
-							markActive();
-							void controller.refreshLevel(sessionId, '');
-						},
-					}, icon(ICON_REFRESH))));
+				null);
 
 			var activePath = state.active;
 			var activeDoc = activePath === null ? undefined : state.docs[activePath];
@@ -3566,9 +3578,24 @@ window.__ModuleLoader__.load({
 				: editorPanes;
 
 			return h('div', { className: 'dshdv-root', 'data-dsh-diff-files': '', 'data-conversation-composer-overlay': '' },
-				h('div', { className: 'dshdv-fvBar' },
-					h('span', { className: 'dshdv-fvBarPath' }, state.root === null ? t('files.root') : state.root),
-					h('span', null, t('files.fileCount', { count: String(state.tabs.length) }))),
+				/* The header is the shell's own files-panel header: one 38px row holding
+				 * the root path, then its tools. `PathLabel` keeps the trailing name
+				 * visible when the column is narrow, which is the whole point of it. */
+				h('div', { className: 'dshdv-fvHeader' },
+					PathLabel !== null
+						? h(PathLabel, { path: state.root === null ? t('files.root') : state.root, className: 'dshdv-fvHeaderPath', 'data-dsh-diff-files-path': '' })
+						: h('span', { className: 'dshdv-fvHeaderPath', 'data-dsh-diff-files-path': '' }, state.root === null ? t('files.root') : state.root),
+					h('button', {
+						type: 'button',
+						className: 'dshdv-btn',
+						title: t('files.refresh'),
+						'aria-label': t('files.refresh'),
+						'data-dsh-diff-files-refresh': '',
+						onClick: function () {
+							markActive();
+							void controller.refreshLevel(sessionId, '');
+						},
+					}, icon(ICON_REFRESH))),
 				h('div', { className: 'dshdv-main' },
 					h('div', { className: 'dshdv-fvTree' },
 						h('div', { className: 'dshdv-fvTreeBody', role: 'tree', 'aria-label': t('files.label'), 'data-dsh-diff-files-tree': '' }, listBody)),
