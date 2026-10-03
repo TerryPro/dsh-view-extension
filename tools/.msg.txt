@@ -1,21 +1,18 @@
-dsh-diff-view: the changes tab becomes a git browser
+dsh-diff-view: polling is off by default, and a read is not an interaction
 
-The working-tree view went empty after every per-round commit, which is the very
-workflow this plugin created. History is what is actually worth reading.
+The first version polled every FOUR seconds while "active", and re-armed that
+active window from every fresh answer ([state.phase, state.files.length]). So the
+intended back-off to the slow cadence could never happen: the pane renewed its own
+fast window from the refreshes it was scheduling, and polled forever. The per-turn
+tab had the same shape (8s unconditional, plus the same self re-arming).
 
-- left column: the commit list, with "working tree (uncommitted)" as its first row
-- right column: what the selection touched (a third) above that file's comparison
-- a commit's own files come from diff-tree --root --first-parent; its file diffs
-  read in the new commit scope (?scope=commit&at=<sha>)
-- the checkpoint button stays (the only write), and a commit re-reads the history
-- the session scope, the turn strip and the delta/state axis are gone by request,
-  with their styles
+- polling is opt-in now (persisted as dsh-diff-view.auto), default off
+- active cadence 4s -> 15s, idle 20s -> 60s
+- only real interaction counts as activity
+- what replaces the timer: a re-read on window focus / visibilitychange, which is
+  the event that actually means "the picture may have moved since you looked"
 
-Two defects the new tests caught:
-- fileUrl formatted `at` as a session coordinate for every scope, so a commit read
-  asked for `at=<sha>:undefined:undefined` -- a read that could only fail;
-- a failed history read replaced the whole column, including the working-tree row
-  that needs no repository at all.
+Tests now assert the pair: nothing is scheduled while polling is off, the toggle
+persists, and only then is the next read scheduled.
 
-170 host checks (15 new: log parsing, paging, the root commit, commit files and
-statuses, the commit scope, a bad commit), 271 client checks.
+275 client checks, 170 host checks.

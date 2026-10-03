@@ -253,6 +253,21 @@ check('the ghosted textarea keeps a visible caret', ...)   // 字形透明但光
 | 行度量 | `padding:5px 10px`、`gap:6px`、`border-radius:var(--dsw-radius-md)`、每级缩进 18px、`scrollbar-gutter:stable`、悬停用 `--dsw-alias-interactive-bg-hover`（全部逐字对齐 FilesBody.module.css） |
 
 保留的自家能力：脏标记（`●` 在行尾与标签上）、每级的 loading/失败/空/截断提示行、多标签与编辑器。
+## 自动刷新：默认关闭（一次设计缺陷的修正）
+
+第一版是这样写的：**活跃时每 4 秒**读一次，20 秒退到慢速，而"活跃"= 距上次交互**或上次读到新数据** 30 秒内。最后半句是致命的 —— 我写了一个 `[state.phase, state.files.length]` 的 effect，于是**每次刷新读到新数据又把自己标记为活跃**，退化成慢速这件事永远不会发生：4 秒轮询自我续命，永久跑下去。逐轮页签同样（8 秒无条件，外加同样的自我续命）。
+
+现在的策略：
+
+| | 之前 | 现在 |
+|---|---|---|
+| 默认 | 开 | **关**（偏好键 `dsh-diff-view.auto`，可持久化） |
+| 活跃节拍 | 4 秒 | 15 秒 |
+| 空闲节拍 | 20 秒 | 60 秒 |
+| 谁算"活跃" | 交互 **或读到新数据** | **只有真实交互** |
+| 定时器之外 | 无 | **窗口重新获得焦点 / 页面重新可见时补读一次**（`focus` + `visibilitychange`） |
+
+理由写在代码注释里，避免以后又被改回去：**一次读取不是一次交互**；而且"回到这个页面"这个事件本来就等价于"你可能想看最新的了"，它比一个永远在问的定时器更准、更省。
 ## 第一个页签：Git 浏览（原来是「变更」）
 
 改的原因很直接：**每轮"记一笔"之后工作区通常是干净的**，所以"工作区 vs HEAD"的变更视图经常空着 —— 而历史才是真正会看的东西。
@@ -374,7 +389,7 @@ dsh plugin add link:F:/deepseek_harness_workspace/dsh-diff-view
 
 ```bash
 node tools/test-host.mjs      # 170 项：解析器对真实 git 输出、路由行为、会话折叠与兜底、围栏
-node tools/smoke-client.mjs   # 271 项：契约、注册、渲染、交互、失败态
+node tools/smoke-client.mjs   # 275 项：契约、注册、渲染、交互、失败态
 npm test                      # 两个都跑
 ```
 

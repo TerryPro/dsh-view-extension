@@ -50,15 +50,15 @@ window.__ModuleLoader__.load({
 		/** The file view's id: the working tree, with an editor. */
 		var FILES_ID = 'files';
 		/** How often the turn browser re-reads its list while it is on screen. */
-		var TURNS_REFRESH_MS = 8_000;
+		var TURNS_REFRESH_MS = 15_000;
 		/** Its idle cadence: a turn list changes at turn boundaries, not every second. */
 		var TURNS_REFRESH_IDLE_MS = 30_000;
 		/** How long the reader's activity keeps the faster cadence alive. */
 		var TURNS_ACTIVE_MS = 30_000;
 		/** How long a silent auto-refresh waits between reads while the reader is active. */
-		var AUTO_REFRESH_MS = 4000;
+		var AUTO_REFRESH_MS = 15_000;
 		/** The idle cadence: still fresh, but no longer every few seconds. */
-		var AUTO_REFRESH_IDLE_MS = 20000;
+		var AUTO_REFRESH_IDLE_MS = 60_000;
 		/**
 		 * How long the active cadence holds after the reader last did something.
 		 *
@@ -67,6 +67,17 @@ window.__ModuleLoader__.load({
 		 * four-second poll is churn, not freshness.
 		 */
 		var AUTO_REFRESH_ACTIVE_MS = 30000;
+		/**
+		 * Where the reader's standing choice about polling lives.
+		 *
+		 * The default is OFF, and that is a correction rather than a taste: the first
+		 * version polled every four seconds AND re-armed its own "active" window
+		 * whenever a read brought something new, so the intended back-off to the slow
+		 * cadence could never happen — the pane refreshed itself forever. Nothing
+		 * here needs a timer: a review pane wants a read when the reader returns to
+		 * it, after an action, and when they ask for one.
+		 */
+		var AUTO_KEY = NAMESPACE + '.auto';
 		/** Largest number of diff lines drawn for one file. */
 		var MAX_RENDERED_LINES = 4000;
 		/** Where the wrap preference lives (per browser, like the shell's own). */
@@ -2254,11 +2265,21 @@ window.__ModuleLoader__.load({
 				return function () { controller.reset(); };
 			}, [controller, sessionId]);
 
-			React.useEffect(function () { markActive(); }, [state.phase, state.selected, state.detailPhase]);
+			/* No re-arm on a fresh answer: a read is not an interaction, and treating it
+			 * as one is how the fast cadence became permanent. */
 
+			/**
+			 * The poll, and the event that replaces it.
+			 *
+			 * Polling is opt-in (the same `AUTO_KEY` switch the history tab carries) and
+			 * the default is off. What runs either way is the re-read when the window
+			 * comes back to the reader: a turn list changes at turn boundaries, and the
+			 * moment someone returns to look is exactly when that matters.
+			 */
 			React.useEffect(function () {
-				/* Self-scheduling like the diff view's tick: a refresh that found
-				 * nothing new changes no state, so the loop cannot depend on one. */
+				if (readPreference(AUTO_KEY, 'off') !== 'on') return undefined;
+				/* Self-scheduling: a refresh that found nothing new changes no state, so
+				 * the loop cannot depend on one. */
 				var timer = window.setTimeout(function () {
 					void controller.refresh(sessionId).then(function () {
 						setTick(function (value) { return value + 1; });
@@ -2266,6 +2287,20 @@ window.__ModuleLoader__.load({
 				}, Date.now() < activeUntil.current ? TURNS_REFRESH_MS : TURNS_REFRESH_IDLE_MS);
 				return function () { window.clearTimeout(timer); };
 			}, [controller, sessionId, tick]);
+
+			React.useEffect(function () {
+				var onReturn = function () {
+					if (document.hidden) return;
+					markActive();
+					void controller.refresh(sessionId);
+				};
+				window.addEventListener('focus', onReturn);
+				document.addEventListener('visibilitychange', onReturn);
+				return function () {
+					window.removeEventListener('focus', onReturn);
+					document.removeEventListener('visibilitychange', onReturn);
+				};
+			}, [controller, sessionId]);
 
 			var rows = state.turns;
 			var selectedRow = state.selected === null ? undefined : rows.find(function (row) { return row.turn === state.selected; });
@@ -2658,7 +2693,9 @@ window.__ModuleLoader__.load({
 			var splitState = React.useState(false);
 			var split = splitState[0];
 			var setSplit = splitState[1];
-			var autoState = React.useState(true);
+			/* Off unless the reader turned it on — see AUTO_KEY. A review pane does not
+			 * need a timer; it needs a read when the reader returns to it. */
+			var autoState = React.useState(function () { return readPreference(AUTO_KEY, 'off') === 'on'; });
 			var auto = autoState[0];
 			var setAuto = autoState[1];
 			var filterState = React.useState('');
@@ -2671,10 +2708,10 @@ window.__ModuleLoader__.load({
 			/**
 			 * When the reader last did something.
 			 *
-			 * A diff view is only "live" while someone is working in the tree, so
-			 * the auto-refresh keeps the quick cadence for a while after any
-			 * interaction or fresh answer and then backs off to a slow one. Nothing
-			 * on screen changes at either cadence unless the answer differs.
+			 * Only a real interaction counts. The first version also re-armed this on
+			 * every fresh answer, which made the "active" window renew itself from the
+			 * refresh it was scheduling: the fast cadence never expired, and the pane
+			 * polled forever. A read is not an interaction.
 			 */
 			var activeUntil = React.useRef(0);
 			var markActive = function () {
@@ -2689,10 +2726,28 @@ window.__ModuleLoader__.load({
 				};
 			}, [controller, sessionId]);
 
+			/**
+			 * Re-read when the reader comes back to the window.
+			 *
+			 * This is what replaces the timer for anyone who leaves polling off: an
+			 * event that means "the picture may have moved since you last looked",
+			 * rather than a question asked every few seconds forever.
+			 */
 			React.useEffect(function () {
-				// A fresh phase or a different number of files is a new picture.
-				markActive();
-			}, [state.phase, state.files.length]);
+				if (!auto) return undefined;
+				var onReturn = function () {
+					if (document.hidden) return;
+					markActive();
+					void controller.refresh(sessionId);
+					void controller.readHistory(sessionId);
+				};
+				window.addEventListener('focus', onReturn);
+				document.addEventListener('visibilitychange', onReturn);
+				return function () {
+					window.removeEventListener('focus', onReturn);
+					document.removeEventListener('visibilitychange', onReturn);
+				};
+			}, [auto, controller, sessionId]);
 
 			/* An armed checkpoint disarms itself: a button that stays armed is a
 			 * button that commits something the reader has stopped thinking about. */
@@ -2983,7 +3038,10 @@ window.__ModuleLoader__.load({
 						type: 'button', className: 'dshdv-btn', 'aria-pressed': auto,
 						title: auto ? t('action.auto.on') : t('action.auto.off'), 'aria-label': t('action.auto'),
 						'data-dsh-diff-auto': auto ? 'on' : 'off',
-						onClick: function () { setAuto(!auto); },
+						onClick: function () {
+							setAuto(!auto);
+							writePreference(AUTO_KEY, !auto ? 'on' : 'off');
+						},
 					}, h('span', { 'aria-hidden': 'true' }, auto ? '●' : '○')),
 					h('button', {
 						type: 'button', className: 'dshdv-btn', title: t('action.refresh'), 'aria-label': t('action.refresh'),

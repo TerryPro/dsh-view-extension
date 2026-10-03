@@ -419,10 +419,19 @@ const documentStub = {
 
 const storage = new Map()
 const timers = { intervals: [], timeouts: [] }
+/** Window-level listeners the plugin registers (focus, visibility). */
+const windowListeners = new Map()
 const windowStub = {
   localStorage: {
     getItem: key => (storage.has(key) ? storage.get(key) : null),
     setItem: (key, value) => { storage.set(key, String(value)) },
+  },
+  addEventListener(type, listener) {
+    if (!windowListeners.has(type)) windowListeners.set(type, new Set())
+    windowListeners.get(type).add(listener)
+  },
+  removeEventListener(type, listener) {
+    windowListeners.get(type)?.delete(listener)
   },
   setInterval(fn, ms) {
     const handle = { fn, ms }
@@ -1076,7 +1085,23 @@ check('a silent refresh keeps the comparison on screen', findAll(tree, node => t
 check('a silent refresh keeps the rows on screen', findAll(tree, node => node.props !== undefined && node.props['data-path'] !== undefined).length === 3)
 check('a silent refresh never shows the list spinner', textOf(tree).includes('正在读取改动…') === false, textOf(tree))
 check('the cadence schedules one read at a time rather than polling', timers.intervals.length === 0, `${timers.intervals.length} intervals`)
-check('the next read is scheduled with a timeout', timers.timeouts.length >= 1, `${timers.timeouts.length} timeouts`)
+/* Polling is OFF by default, and that is a correction: the first version polled
+ * every four seconds and re-armed its own "active" window from the answers it
+ * received, so the back-off to the slow cadence could never happen and the pane
+ * refreshed itself forever. A read is not an interaction. */
+check('nothing is scheduled while polling is off', timers.timeouts.length === 0, `${timers.timeouts.length} timeouts`)
+const autoToggle = findAll(tree, node => node.props?.['data-dsh-diff-auto'] !== undefined)[0]
+check('the pane says polling is off', autoToggle?.props['data-dsh-diff-auto'] === 'off', JSON.stringify(autoToggle?.props['data-dsh-diff-auto']))
+autoToggle.props.onClick()
+await settle(2)
+tree = await rerender(viewElement())
+check('turning it on persists the choice', storage.get('dsh-diff-view.auto') === 'on', String(storage.get('dsh-diff-view.auto')))
+check('and only then is the next read scheduled', timers.timeouts.length >= 1, `${timers.timeouts.length} timeouts`)
+check('the pane reports it on', findAll(tree, node => node.props?.['data-dsh-diff-auto'] !== undefined)[0].props['data-dsh-diff-auto'] === 'on')
+/* Back to the default, for the assertions that follow. */
+findAll(tree, node => node.props?.['data-dsh-diff-auto'] !== undefined)[0].props.onClick()
+await settle(2)
+tree = await rerender(viewElement())
 
 /* The cost a refresh must NOT pay: rebuilding the comparison on screen. A diff
  * is the largest subtree in this view, so re-creating it every tick is what a
